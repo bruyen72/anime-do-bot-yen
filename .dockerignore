@@ -1,28 +1,71 @@
+# Dependencies
 node_modules
-.git
-.gitignore
-README.md
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist
+build
+
+# Environment files  
 .env*
+
+# OS files
 .DS_Store
-npm-debug.log
-fly.toml
-logs/
-baileys-session/
-temp/
-cache/
-*.log
-*.webp
-*.gif
-*.png
-*.jpg
-*.jpeg
-*.mp4
-*.mp3
-Assets/
-docs/
-test/
-tests/
-.github/
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# IDE files
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
 Dockerfile*
 docker-compose*
+.dockerignore
+
+# Documentation
+README.md
+*.md
+docs/
+
+# Tests
+test/
+tests/
+__tests__/
+*.test.js
+*.spec.js
+
+# Logs e cache (serão criados no container)
+logs/
+cache/
+temp/
+baileys-session/
+*.log
+
+# Arquivos grandes/temporários
+Assets/Img/*.gif
+Assets/Img/*.mp4
+ffmpeg.exe
+*.webp
+*.tmp
+
+# Railway/Deploy
+fly.toml
+railway.toml
+heroku.yml
+app.json
+Procfile
+
+# GitHub
+.github/
