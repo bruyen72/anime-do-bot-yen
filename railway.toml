@@ -1,0 +1,14 @@
+[build]
+builder = "dockerfile"
+buildCommand = "echo 'Railway build starting...'"
+
+[deploy]
+startCommand = "node index.js"
+healthcheckPath = "/"
+healthcheckTimeout = 100
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
+
+[environments.production]
+PORT = 3000
+NODE_ENV = "production"
