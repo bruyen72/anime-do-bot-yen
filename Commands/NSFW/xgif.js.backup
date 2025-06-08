@@ -1,0 +1,104 @@
+const axios = require("axios");
+const cheerio = require("cheerio");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
+const { exec } = require("child_process");
+const { promisify } = require("util");
+const execPromise = promisify(exec);
+
+module.exports = {
+  name: "xgif",
+  alias: ["pgif", "adultgif"],
+  desc: "Busca e envia figurinha animada (NSFW) de porngipfy.com",
+  category: "Nsfw",
+  usage: ".xgif <termo>",
+  react: "🔞",
+
+  start: async (Yaka, m, { prefix, NSFWstatus, args }) => {
+    if (NSFWstatus === "false") {
+      return m.reply(`❌ Este grupo não tem o modo NSFW ativado. Use: *${prefix}nsfw*`);
+    }
+
+    const termo = args.join(" ").trim();
+    if (!termo) return m.reply(`❗ Forneça um termo. Ex: *${prefix}xgif bunda*`);
+
+    await m.reply(`🔍 Buscando figurinha animada para: *${termo}*...`);
+
+    // Etapa 1: Buscar gif do site
+    const searchUrl = `https://porngipfy.com/page/1/?s=${encodeURIComponent(termo)}`;
+    let gifUrl = null;
+
+    try {
+      const res = await axios.get(searchUrl, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        timeout: 10000,
+      });
+
+      const $ = cheerio.load(res.data);
+      const gifs = [];
+
+      $(".thumb-image img").each((_, el) => {
+        const src = $(el).attr("data-gif");
+        if (src && src.endsWith(".gif")) {
+          gifs.push(src.startsWith("http") ? src : "https:" + src);
+        }
+      });
+
+      if (gifs.length === 0) return m.reply(`❌ Nenhum resultado encontrado para *${termo}*`);
+
+      gifUrl = gifs[Math.floor(Math.random() * gifs.length)];
+      console.log(`[xgif] Selecionado: ${gifUrl}`);
+    } catch (err) {
+      console.error("[xgif] Erro ao buscar gifs:", err.message);
+      return m.reply(`❌ Erro ao buscar gifs. Tente novamente mais tarde.`);
+    }
+
+    // Etapa 2: Baixar o GIF
+    const tempDir = path.join(os.tmpdir(), "yaka_gifs");
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+    const inputGif = path.join(tempDir, `gif_${Date.now()}.gif`);
+    const outputWebp = path.join(tempDir, `sticker_${Date.now()}.webp`);
+
+    try {
+      const response = await axios.get(gifUrl, {
+        responseType: "arraybuffer",
+        timeout: 15000,
+      });
+
+      fs.writeFileSync(inputGif, Buffer.from(response.data));
+      console.log(`[xgif] GIF salvo: ${inputGif}`);
+    } catch (err) {
+      console.error("[xgif] Falha no download do gif:", err.message);
+      return m.reply(`❌ Falha ao baixar o GIF.`);
+    }
+
+    // Etapa 3: Converter para sticker animado com padding e proporção correta
+    try {
+      const ffmpegCmd = `ffmpeg -i "${inputGif}" -vf "fps=12,scale=320:-1:flags=lanczos:force_original_aspect_ratio=decrease,pad=320:320:(ow-iw)/2:(oh-ih)/2:color=0x00000000" -loop 0 -t 8 -an -c:v libwebp -preset default -qscale 50 -y "${outputWebp}"`;
+      console.log("[xgif] Convertendo com ffmpeg...");
+      await execPromise(ffmpegCmd);
+
+      if (!fs.existsSync(outputWebp)) throw new Error("Conversão falhou");
+
+      const stickerBuffer = fs.readFileSync(outputWebp);
+
+      await Yaka.sendMessage(
+        m.from,
+        { sticker: stickerBuffer },
+        { quoted: m }
+      );
+
+      console.log("[xgif] Figurinha animada enviada!");
+    } catch (err) {
+      console.error("[xgif] Erro ao converter para sticker:", err.message);
+      await m.reply(`❌ Não consegui converter o gif. Tente outro termo.`);
+    } finally {
+      // Limpeza de arquivos temporários
+      [inputGif, outputWebp].forEach(file => {
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+      });
+    }
+  },
+};

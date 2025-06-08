@@ -1,0 +1,30 @@
+{
+  "uptime": 200.555538137,
+  "totalCommands": 4,
+  "topCommands": [
+    [
+      "hi",
+      2
+    ],
+    [
+      "nsfw",
+      1
+    ],
+    [
+      "help",
+      1
+    ],
+    [
+      "nsfwmenu",
+      1
+    ]
+  ],
+  "finalMemory": {
+    "rss": 585,
+    "heapTotal": 331,
+    "heapUsed": 313,
+    "external": 105
+  },
+  "shutdownReason": "SIGINT",
+  "timestamp": "2025-05-22T03:05:33.138Z"
+}

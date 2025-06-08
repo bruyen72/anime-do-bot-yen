@@ -1,0 +1,27 @@
+{
+  "groups": {
+    "120363418958833738@g.us": {
+      "id": "120363418958833738@g.us",
+      "antilink": "false",
+      "nsfw": "false",
+      "bangroup": "false",
+      "chatBot": "true",
+      "botSwitch": "true",
+      "switchNSFW": "false",
+      "switchWelcome": "false"
+    },
+    "120363419078400357@g.us": {
+      "id": "120363419078400357@g.us",
+      "antilink": "false",
+      "nsfw": "false",
+      "bangroup": "false",
+      "chatBot": "true",
+      "botSwitch": "true",
+      "switchNSFW": "false",
+      "switchWelcome": "false"
+    }
+  },
+  "users": {},
+  "characters": {},
+  "timestamp": 1749363655008
+}
