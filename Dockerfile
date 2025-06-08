@@ -1,5 +1,5 @@
-# Dockerfile otimizado para Railway - Build rápido
-FROM node:18-bullseye-slim
+# Dockerfile otimizado para Railway - Node 20 para Baileys
+FROM node:20-bullseye-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_OPTIONS="--max-old-space-size=4096"
