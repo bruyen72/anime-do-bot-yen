@@ -23,7 +23,7 @@ class PinterestImageScraper {
       },
       requestCount: 0,
       lastReset: Date.now(),
-      enabled: true
+      enabled: false
     };
     
     this.loginCredentials = {
