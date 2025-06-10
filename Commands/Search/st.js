@@ -283,7 +283,7 @@ async function processEmergencyQuality(inputPath, outputPath, isVideo) {
 // COMANDO PRINCIPAL
 // ========================================
 module.exports = {
-    name: "s",
+    name: "st",
     alias: ["sticker", "fig", "figurinha"],
     desc: "Criar sticker de imagem ou vídeo com alta qualidade",
     category: "Converter",
