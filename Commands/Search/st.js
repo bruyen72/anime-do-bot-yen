@@ -25,6 +25,52 @@ if (!fs.existsSync(STICKER_CONFIG.TEMP_DIR)) {
 }
 
 // ========================================
+// UTILITÁRIOS PARA DEBUGAR JID
+// ========================================
+function debugChatInfo(m) {
+    console.log('🔍 DEBUG CHAT INFO:');
+    console.log('   m.chat:', m.chat);
+    console.log('   m.from:', m.from);
+    console.log('   m.key.remoteJid:', m.key?.remoteJid);
+    console.log('   m.key.participant:', m.key?.participant);
+    console.log('   Tipo de chat:', typeof m.chat);
+    console.log('   Chat válido:', !!m.chat && m.chat.length > 0);
+    
+    // Tentar identificar o formato correto
+    if (m.chat && m.chat.includes('@')) {
+        console.log('   ✅ Chat tem @ - formato válido');
+        return m.chat;
+    } else if (m.key?.remoteJid) {
+        console.log('   🔄 Usando remoteJid:', m.key.remoteJid);
+        return m.key.remoteJid;
+    } else if (m.from) {
+        console.log('   🔄 Usando from:', m.from);
+        return m.from;
+    } else {
+        console.log('   ❌ Nenhum chat válido encontrado');
+        return null;
+    }
+}
+
+function sanitizeChatId(chatId) {
+    if (!chatId) return null;
+    
+    // Se já está no formato correto, retornar
+    if (chatId.includes('@s.whatsapp.net') || chatId.includes('@g.us')) {
+        return chatId;
+    }
+    
+    // Tentar adicionar sufixo correto
+    if (chatId.includes('-')) {
+        // Provavelmente é grupo
+        return `${chatId}@g.us`;
+    } else {
+        // Provavelmente é privado
+        return `${chatId}@s.whatsapp.net`;
+    }
+}
+
+// ========================================
 // DOWNLOAD (MANTENDO SEU SISTEMA)
 // ========================================
 async function downloadMedia(quoted, m) {
@@ -57,7 +103,7 @@ async function downloadMedia(quoted, m) {
 }
 
 // ========================================
-// PROCESSAMENTO ULTRA SEGURO
+// PROCESSAMENTO ULTRA SEGURO (MANTENDO COMO ESTÁ)
 // ========================================
 async function processSticker(inputPath, outputPath, isVideo) {
     console.log(`🔄 Processamento SEGURO - ${isVideo ? 'VÍDEO' : 'IMAGEM'}`);
@@ -103,9 +149,6 @@ async function processSticker(inputPath, outputPath, isVideo) {
     throw new Error('Processamento falhou em todas as qualidades');
 }
 
-// ========================================
-// PROCESSAMENTO DE VÍDEO SEGURO
-// ========================================
 async function processVideoSafe(inputPath, outputPath, quality) {
     return new Promise((resolve) => {
         try {
@@ -130,13 +173,6 @@ async function processVideoSafe(inputPath, outputPath, quality) {
             const process = spawn('ffmpeg', args, {
                 stdio: ['ignore', 'ignore', 'pipe']
             });
-            
-            let stderr = '';
-            if (process.stderr) {
-                process.stderr.on('data', (data) => {
-                    stderr += data.toString();
-                });
-            }
             
             process.on('close', (code) => {
                 if (code === 0) {
@@ -172,9 +208,6 @@ async function processVideoSafe(inputPath, outputPath, quality) {
     });
 }
 
-// ========================================
-// PROCESSAMENTO DE IMAGEM SEGURO
-// ========================================
 async function processImageSafe(inputPath, outputPath, quality) {
     try {
         console.log(`🖼️ Processando imagem Q${quality}...`);
@@ -205,99 +238,136 @@ async function processImageSafe(inputPath, outputPath, quality) {
 }
 
 // ========================================
-// ENVIO SEGURO DE STICKER
+// ENVIO ULTRA INVESTIGATIVO E SEGURO
 // ========================================
-async function safeSendSticker(Yaka, m, stickerBuffer) {
-    console.log('📤 Tentando envio seguro do sticker...');
+async function ultraSafeSendSticker(Yaka, m, stickerBuffer) {
+    console.log('🔍 ========== INVESTIGAÇÃO DE ENVIO ========== 🔍');
     
+    // Debug completo do chat
+    const originalChat = debugChatInfo(m);
+    const sanitizedChat = sanitizeChatId(originalChat);
+    
+    console.log('🎯 Chat para envio:', sanitizedChat);
+    
+    if (!sanitizedChat) {
+        throw new Error('Não foi possível determinar o chat de destino');
+    }
+    
+    // Estratégias com diferentes formatos de chat
     const sendStrategies = [
-        // Estratégia 1: Envio normal
-        async () => {
-            return await Yaka.sendMessage(m.chat, { 
-                sticker: stickerBuffer 
-            }, { quoted: m });
-        },
-        
-        // Estratégia 2: Envio sem quoted
-        async () => {
-            return await Yaka.sendMessage(m.chat, { 
-                sticker: stickerBuffer 
-            });
-        },
-        
-        // Estratégia 3: Envio com configurações mínimas
-        async () => {
-            return await Yaka.sendMessage(m.chat, { 
-                sticker: stickerBuffer 
-            }, {});
-        },
-        
-        // Estratégia 4: Usando relayMessage direto (se disponível)
-        async () => {
-            if (Yaka.relayMessage) {
-                const messageContent = {
-                    stickerMessage: {
-                        url: '',
-                        fileSha256: Buffer.alloc(32),
-                        fileEncSha256: Buffer.alloc(32),
-                        mediaKey: Buffer.alloc(32),
-                        mimetype: 'image/webp',
-                        height: 512,
-                        width: 512,
-                        directPath: '',
-                        fileLength: stickerBuffer.length,
-                        isAnimated: false
-                    }
-                };
-                
-                return await Yaka.relayMessage(m.chat, messageContent, {});
+        {
+            name: 'Chat original',
+            execute: async () => {
+                return await Yaka.sendMessage(originalChat, { 
+                    sticker: stickerBuffer 
+                }, { quoted: m });
             }
-            throw new Error('relayMessage não disponível');
+        },
+        {
+            name: 'Chat sanitizado com quoted',
+            execute: async () => {
+                return await Yaka.sendMessage(sanitizedChat, { 
+                    sticker: stickerBuffer 
+                }, { quoted: m });
+            }
+        },
+        {
+            name: 'Chat sanitizado sem quoted',
+            execute: async () => {
+                return await Yaka.sendMessage(sanitizedChat, { 
+                    sticker: stickerBuffer 
+                });
+            }
+        },
+        {
+            name: 'RemoteJid direto',
+            execute: async () => {
+                if (m.key?.remoteJid) {
+                    return await Yaka.sendMessage(m.key.remoteJid, { 
+                        sticker: stickerBuffer 
+                    });
+                }
+                throw new Error('RemoteJid não disponível');
+            }
+        },
+        {
+            name: 'From direto',
+            execute: async () => {
+                if (m.from) {
+                    return await Yaka.sendMessage(m.from, { 
+                        sticker: stickerBuffer 
+                    });
+                }
+                throw new Error('From não disponível');
+            }
+        },
+        {
+            name: 'Método reply direto',
+            execute: async () => {
+                if (m.reply && typeof m.reply === 'function') {
+                    // Criar mensagem de sticker para reply
+                    return await m.reply({ sticker: stickerBuffer });
+                }
+                throw new Error('Reply não disponível');
+            }
+        },
+        {
+            name: 'Usando sendMessage básico',
+            execute: async () => {
+                // Tentar com o mínimo de parâmetros
+                return await Yaka.sendMessage(m.chat || m.key?.remoteJid || m.from, { 
+                    sticker: stickerBuffer 
+                }, {});
+            }
         }
     ];
     
     for (let i = 0; i < sendStrategies.length; i++) {
+        const strategy = sendStrategies[i];
+        
         try {
-            console.log(`📤 Tentativa de envio ${i + 1}/${sendStrategies.length}...`);
+            console.log(`📤 Tentativa ${i + 1}/${sendStrategies.length}: ${strategy.name}`);
             
             const result = await Promise.race([
-                sendStrategies[i](),
+                strategy.execute(),
                 new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Timeout no envio')), 10000)
+                    setTimeout(() => reject(new Error('Timeout no envio')), 8000)
                 )
             ]);
             
             if (result) {
-                console.log(`✅ Sticker enviado com sucesso (estratégia ${i + 1})`);
+                console.log(`✅ SUCESSO! Sticker enviado via: ${strategy.name}`);
                 return true;
             }
             
         } catch (error) {
-            console.log(`❌ Estratégia ${i + 1} falhou: ${error.message}`);
+            console.log(`❌ ${strategy.name} falhou: ${error.message}`);
             
-            // Se é erro de jidDecode, tentar próxima estratégia
-            if (error.message.includes('jidDecode') || error.message.includes('destructure')) {
-                continue;
+            // Log específico para erro jidDecode
+            if (error.message.includes('jidDecode')) {
+                console.log(`   🔍 Erro jidDecode em: ${strategy.name}`);
+                console.log(`   📱 Chat usado: ${originalChat || 'undefined'}`);
             }
         }
     }
     
-    throw new Error('Todas as estratégias de envio falharam');
+    console.log('🔍 ========== FIM INVESTIGAÇÃO ========== 🔍');
+    throw new Error('Todas as estratégias de envio falharam - problema no jidDecode do Baileys');
 }
 
 // ========================================
-// COMANDO ST ULTRA SEGURO
+// COMANDO ST COM INVESTIGAÇÃO COMPLETA
 // ========================================
 module.exports = {
     name: "st",
     alias: ["sticker", "stick"],
-    desc: "Criar sticker com alta qualidade - versão segura",
+    desc: "Criar sticker com investigação completa de envio",
     category: "Converter",
     usage: ".st [responda mídia]",
     react: "🔥",
     
     start: async (Yaka, m, { prefix, quoted }) => {
-        console.log('\n🔥 ========== STICKER SEGURO (.ST) ========== 🔥');
+        console.log('\n🔥 ========== STICKER COM INVESTIGAÇÃO ========== 🔥');
         
         const tempFiles = [];
         let progressMsg = null;
@@ -305,17 +375,24 @@ module.exports = {
         try {
             if (!quoted && !m.message?.imageMessage && !m.message?.videoMessage) {
                 return m.reply(
-                    `🔥 **CRIAR STICKER SEGURO (.ST)**\n\n` +
+                    `🔥 **CRIAR STICKER (.ST)**\n\n` +
                     `🚀 **Como usar:**\n` +
                     `• Responda uma imagem ou vídeo com ${prefix}st\n\n` +
                     `✅ **Recursos:**\n` +
                     `• Qualidade 88-65 (ALTA)\n` +
-                    `• Processamento ultra seguro\n` +
-                    `• Sistema anti-erro\n` +
-                    `• Tamanho 512x512\n\n` +
-                    `⚡ **FUNCIONAMENTO GARANTIDO!**`
+                    `• Sistema de investigação\n` +
+                    `• 7 métodos de envio\n` +
+                    `• Debug completo\n\n` +
+                    `🔍 **MODO INVESTIGAÇÃO ATIVO!**`
                 );
             }
+            
+            // Debug inicial do contexto
+            console.log('🔍 CONTEXTO INICIAL:');
+            console.log('   Yaka disponível:', !!Yaka);
+            console.log('   sendMessage disponível:', !!Yaka?.sendMessage);
+            console.log('   m disponível:', !!m);
+            console.log('   quoted disponível:', !!quoted);
             
             // Download
             const buffer = await downloadMedia(quoted || m, m);
@@ -327,28 +404,14 @@ module.exports = {
                 return m.reply('❌ **Arquivo muito grande!**\n\nTamanho máximo: 20MB');
             }
             
-            // Progresso
+            // Progresso (SEM tentar deletar por enquanto)
             const sizeKB = (buffer.length / 1024).toFixed(1);
-            
-            if (buffer.length > 500 * 1024) {
-                try {
-                    progressMsg = await m.reply(
-                        `🔄 **CRIANDO STICKER SEGURO**\n\n` +
-                        `📊 Arquivo: ${sizeKB}KB\n` +
-                        `🎯 Tipo: ${isVideo ? 'Vídeo/GIF animado' : 'Imagem estática'}\n` +
-                        `🎨 Qualidade: 88-65 (ALTA)\n` +
-                        `🛡️ Sistema anti-erro ativo\n\n` +
-                        `⚡ Processando com segurança...`
-                    );
-                } catch (progressError) {
-                    console.log('⚠️ Erro ao enviar progresso:', progressError.message);
-                }
-            }
+            console.log(`📊 Arquivo: ${sizeKB}KB, Tipo: ${isVideo ? 'vídeo' : 'imagem'}`);
             
             // Arquivos temporários
             const uniqueId = Date.now();
-            const inputPath = path.join(STICKER_CONFIG.TEMP_DIR, `safe_input_${uniqueId}.${fileInfo?.ext || 'tmp'}`);
-            const outputPath = path.join(STICKER_CONFIG.TEMP_DIR, `safe_sticker_${uniqueId}.webp`);
+            const inputPath = path.join(STICKER_CONFIG.TEMP_DIR, `debug_input_${uniqueId}.${fileInfo?.ext || 'tmp'}`);
+            const outputPath = path.join(STICKER_CONFIG.TEMP_DIR, `debug_sticker_${uniqueId}.webp`);
             tempFiles.push(inputPath, outputPath);
             
             // Salvar entrada
@@ -371,60 +434,27 @@ module.exports = {
             }
             
             console.log(`📤 Sticker processado: ${resultSize}KB em ${processingTime}s`);
+            console.log(`📱 Iniciando investigação de envio...`);
             
-            // Remover progresso ANTES do envio
-            if (progressMsg) {
-                try {
-                    await Yaka.sendMessage(m.chat, { delete: progressMsg.key });
-                    console.log('🗑️ Progresso removido');
-                } catch (deleteError) {
-                    console.log('⚠️ Erro ao deletar progresso:', deleteError.message);
-                }
-            }
+            // Envio com investigação completa
+            await ultraSafeSendSticker(Yaka, m, stickerBuffer);
             
-            // Envio seguro do sticker
-            await safeSendSticker(Yaka, m, stickerBuffer);
-            
-            console.log(`✅ STICKER ENVIADO COM SUCESSO: ${resultSize}KB`);
+            console.log(`✅ STICKER ENVIADO COM SUCESSO!`);
             
         } catch (error) {
-            console.error('❌ ERRO NO .ST SEGURO:', error.message);
+            console.error('❌ ERRO GERAL:', error.message);
+            console.error('Stack completo:', error.stack);
             
-            // Remover progresso em caso de erro
-            if (progressMsg) {
-                try {
-                    await Yaka.sendMessage(m.chat, { delete: progressMsg.key });
-                } catch (e) {
-                    console.log('⚠️ Erro ao deletar progresso no catch');
-                }
-            }
-            
-            // Erro detalhado
-            let errorMsg = '❌ **Erro no processamento**\n\n';
-            
-            if (error.message.includes('Download')) {
-                errorMsg += '📥 Falha no download\n💡 Reenvie o arquivo';
-            } else if (error.message.includes('jidDecode') || error.message.includes('destructure')) {
-                errorMsg += '📤 Erro no envio (Baileys)\n💡 Tente novamente';
-            } else if (error.message.includes('envio')) {
-                errorMsg += '📤 Falha no envio\n💡 Conexão instável, tente novamente';
-            } else if (error.message.includes('FFmpeg')) {
-                errorMsg += '🎬 Erro no FFmpeg\n💡 Verifique instalação';
-            } else if (error.message.includes('Sharp')) {
-                errorMsg += '🖼️ Erro no processamento\n💡 Formato corrompido';
-            } else {
-                errorMsg += `🔧 ${error.message}\n💡 Tente novamente`;
-            }
-            
+            // Tentar enviar erro de forma segura
             try {
-                await m.reply(errorMsg);
+                await m.reply(`❌ **Erro detalhado**\n\n🔧 ${error.message}`);
             } catch (replyError) {
-                console.log('❌ Erro ao enviar mensagem de erro:', replyError.message);
+                console.log('❌ Não foi possível enviar mensagem de erro:', replyError.message);
             }
             
         } finally {
-            // Limpeza ultra segura
-            console.log('🧹 Iniciando limpeza...');
+            // Limpeza
+            console.log('🧹 Limpeza final...');
             for (const filePath of tempFiles) {
                 try {
                     if (fs.existsSync(filePath)) {
@@ -432,10 +462,9 @@ module.exports = {
                         console.log(`🗑️ Removido: ${path.basename(filePath)}`);
                     }
                 } catch (cleanError) {
-                    console.log(`⚠️ Erro limpeza ${path.basename(filePath)}: ${cleanError.message}`);
+                    console.log(`⚠️ Erro limpeza: ${cleanError.message}`);
                 }
             }
-            console.log('✅ Limpeza concluída');
         }
     }
 };
@@ -443,10 +472,10 @@ module.exports = {
 // ========================================
 // INICIALIZAÇÃO
 // ========================================
-console.log('\n🔥 ========== STICKER SEGURO (.ST) CARREGADO ========== 🔥');
-console.log('🛡️ Sistema ultra seguro ativo');
-console.log('📤 Sistema de envio com 4 estratégias');
-console.log('🎨 Qualidades seguras: 88, 85, 82, 78, 75...');
-console.log('🧹 Limpeza automática garantida');
+console.log('\n🔥 ========== STICKER COM INVESTIGAÇÃO CARREGADO ========== 🔥');
+console.log('🔍 Modo investigação ativo');
+console.log('📤 7 estratégias de envio diferentes');
+console.log('🎨 Processamento mantido (funcional)');
+console.log('🧹 Debug completo de jidDecode');
 console.log('🚀 Comando: .st [responder mídia]');
 console.log('==========================================\n');
