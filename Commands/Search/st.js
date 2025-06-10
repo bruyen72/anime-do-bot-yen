@@ -3,18 +3,16 @@ const path = require('path');
 const { tmpdir } = require('os');
 const { spawn } = require('child_process');
 const sharp = require('sharp');
-const fileType = require('file-type');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 
 // ========================================
-// CONFIGURAÇÃO SIMPLES E ROBUSTA
+// CONFIGURAÇÃO ULTRA COMPATÍVEL
 // ========================================
 const ST_CONFIG = {
-    TEMP_DIR: path.join(tmpdir(), 'wa_st_simple'),
-    MAX_SIZE: 100000, // 100KB para todos
-    QUALITY: 85, // Qualidade fixa alta
+    TEMP_DIR: path.join(tmpdir(), 'wa_st_ultra'),
+    QUALITY: 85,
     SIZE: 512,
-    TIMEOUT: 30000
+    TIMEOUT: 25000
 };
 
 // Criar diretório
@@ -23,278 +21,328 @@ try {
         fs.mkdirSync(ST_CONFIG.TEMP_DIR, { recursive: true });
     }
 } catch (e) {
-    console.log('⚠️ Erro ao criar diretório:', e.message);
+    console.log('Diretório já existe ou erro:', e.message);
 }
 
 // ========================================
-// DOWNLOAD ULTRA SIMPLES
+// DOWNLOAD ULTRA COMPATÍVEL - TODAS AS POSSIBILIDADES
 // ========================================
-async function simpleDownload(quoted, m) {
-    console.log('📥 Download simples...');
+async function ultraDownload(quoted, m) {
+    console.log('📥 Iniciando download ultra compatível...');
     
+    // Lista de todas as possíveis fontes de mídia
+    const mediaSources = [];
+    
+    // 1. Quoted com fakeObj
+    if (quoted?.fakeObj) {
+        mediaSources.push(['quoted.fakeObj', quoted.fakeObj]);
+    }
+    
+    // 2. Quoted direto
+    if (quoted && typeof quoted === 'object') {
+        mediaSources.push(['quoted', quoted]);
+    }
+    
+    // 3. Message principal
+    if (m?.message) {
+        mediaSources.push(['m', m]);
+    }
+    
+    // 4. Quoted message
+    if (quoted?.message) {
+        mediaSources.push(['quoted.message', { message: quoted.message }]);
+    }
+    
+    // 5. Buscar em imageMessage
+    if (m?.message?.imageMessage) {
+        mediaSources.push(['m.imageMessage', { message: { imageMessage: m.message.imageMessage } }]);
+    }
+    
+    // 6. Buscar em videoMessage
+    if (m?.message?.videoMessage) {
+        mediaSources.push(['m.videoMessage', { message: { videoMessage: m.message.videoMessage } }]);
+    }
+    
+    // 7. Buscar em documentMessage (para alguns tipos)
+    if (m?.message?.documentMessage) {
+        mediaSources.push(['m.documentMessage', { message: { documentMessage: m.message.documentMessage } }]);
+    }
+    
+    // 8. Quoted imageMessage
+    if (quoted?.message?.imageMessage) {
+        mediaSources.push(['quoted.imageMessage', { message: { imageMessage: quoted.message.imageMessage } }]);
+    }
+    
+    // 9. Quoted videoMessage
+    if (quoted?.message?.videoMessage) {
+        mediaSources.push(['quoted.videoMessage', { message: { videoMessage: quoted.message.videoMessage } }]);
+    }
+    
+    // 10. ExtendedTextMessage (para algumas mídias)
+    if (quoted?.message?.extendedTextMessage?.contextInfo) {
+        const contextInfo = quoted.message.extendedTextMessage.contextInfo;
+        if (contextInfo.quotedMessage) {
+            mediaSources.push(['contextInfo.quotedMessage', { message: contextInfo.quotedMessage }]);
+        }
+    }
+    
+    console.log(`🔍 Encontradas ${mediaSources.length} possíveis fontes de mídia`);
+    
+    // Tentar cada fonte
+    for (let i = 0; i < mediaSources.length; i++) {
+        const [sourceName, sourceData] = mediaSources[i];
+        
+        try {
+            console.log(`🔄 Tentativa ${i + 1}/${mediaSources.length}: ${sourceName}`);
+            
+            const downloadPromise = downloadMediaMessage(sourceData, 'buffer', {});
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Timeout')), 10000)
+            );
+            
+            const buffer = await Promise.race([downloadPromise, timeoutPromise]);
+            
+            if (buffer && Buffer.isBuffer(buffer) && buffer.length > 0) {
+                console.log(`✅ SUCESSO em ${sourceName}: ${(buffer.length / 1024).toFixed(1)}KB`);
+                return buffer;
+            } else {
+                console.log(`⚠️ ${sourceName}: Buffer inválido`);
+            }
+            
+        } catch (error) {
+            console.log(`❌ ${sourceName}: ${error.message}`);
+        }
+    }
+    
+    // Se chegou aqui, tentar métodos alternativos
+    console.log('🔄 Tentando métodos alternativos...');
+    
+    // Método alternativo 1: Verificar se é uma resposta a mídia
     try {
-        // Tentar quoted primeiro
-        if (quoted) {
-            try {
+        if (quoted && quoted.mtype) {
+            console.log(`🔄 Tentando por mtype: ${quoted.mtype}`);
+            
+            if (['imageMessage', 'videoMessage', 'stickerMessage'].includes(quoted.mtype)) {
                 const buffer = await downloadMediaMessage(quoted, 'buffer', {});
                 if (buffer && buffer.length > 0) {
-                    console.log(`✅ Download quoted: ${(buffer.length / 1024).toFixed(1)}KB`);
+                    console.log(`✅ SUCESSO por mtype: ${(buffer.length / 1024).toFixed(1)}KB`);
                     return buffer;
                 }
-            } catch (e) {
-                console.log('⚠️ Quoted falhou, tentando message...');
             }
         }
-        
-        // Tentar message
-        if (m && m.message) {
-            try {
-                const buffer = await downloadMediaMessage(m, 'buffer', {});
-                if (buffer && buffer.length > 0) {
-                    console.log(`✅ Download message: ${(buffer.length / 1024).toFixed(1)}KB`);
-                    return buffer;
-                }
-            } catch (e) {
-                console.log('⚠️ Message falhou');
-            }
-        }
-        
-        throw new Error('Todas as tentativas falharam');
-        
-    } catch (error) {
-        throw new Error(`Download falhou: ${error.message}`);
-    }
-}
-
-// ========================================
-// DETECTAR TIPO SIMPLES
-// ========================================
-function simpleDetectType(buffer) {
-    try {
-        // Verificar assinatura de bytes
-        const hex = buffer.slice(0, 12).toString('hex');
-        
-        if (hex.startsWith('474946')) return 'gif'; // GIF
-        if (hex.startsWith('ffd8ff')) return 'jpg'; // JPEG
-        if (hex.startsWith('89504e47')) return 'png'; // PNG
-        if (hex.includes('667479706d703')) return 'mp4'; // MP4
-        
-        return 'jpg'; // Padrão
     } catch (e) {
-        return 'jpg';
+        console.log(`❌ Método mtype falhou: ${e.message}`);
     }
+    
+    // Método alternativo 2: Verificar mensagem raw
+    try {
+        if (m?.message && Object.keys(m.message).length > 0) {
+            console.log('🔄 Tentando mensagem raw...');
+            const buffer = await downloadMediaMessage(m, 'buffer', {});
+            if (buffer && buffer.length > 0) {
+                console.log(`✅ SUCESSO raw: ${(buffer.length / 1024).toFixed(1)}KB`);
+                return buffer;
+            }
+        }
+    } catch (e) {
+        console.log(`❌ Método raw falhou: ${e.message}`);
+    }
+    
+    throw new Error('Falha em todos os métodos de download');
 }
 
 // ========================================
-// PROCESSAR IMAGEM SIMPLES
+// PROCESSAR SIMPLES
 // ========================================
-async function processImage(inputPath, outputPath) {
+async function processMedia(inputPath, outputPath, isVideo = false) {
+    if (isVideo) {
+        return processVideoSimple(inputPath, outputPath);
+    } else {
+        return processImageSimple(inputPath, outputPath);
+    }
+}
+
+async function processImageSimple(inputPath, outputPath) {
     try {
-        console.log('🖼️ Processando imagem...');
-        
         const buffer = await sharp(inputPath)
             .resize(ST_CONFIG.SIZE, ST_CONFIG.SIZE, {
                 fit: 'contain',
                 background: { r: 0, g: 0, b: 0, alpha: 0 }
             })
-            .webp({
-                quality: ST_CONFIG.QUALITY,
-                effort: 6
-            })
+            .webp({ quality: ST_CONFIG.QUALITY })
             .toBuffer();
         
         fs.writeFileSync(outputPath, buffer);
-        console.log(`✅ Imagem: ${(buffer.length / 1024).toFixed(1)}KB`);
-        return true;
-        
+        return buffer.length > 0;
     } catch (error) {
-        console.log(`❌ Erro imagem: ${error.message}`);
+        console.log(`❌ Erro Sharp: ${error.message}`);
         return false;
     }
 }
 
-// ========================================
-// PROCESSAR VÍDEO SIMPLES
-// ========================================
-async function processVideo(inputPath, outputPath) {
+async function processVideoSimple(inputPath, outputPath) {
     return new Promise((resolve) => {
-        try {
-            console.log('🎬 Processando vídeo...');
-            
-            const args = [
-                '-hide_banner', '-loglevel', 'error', '-y',
-                '-i', inputPath,
-                '-vf', `scale=${ST_CONFIG.SIZE}:${ST_CONFIG.SIZE}:force_original_aspect_ratio=decrease,pad=${ST_CONFIG.SIZE}:${ST_CONFIG.SIZE}:(ow-iw)/2:(oh-ih)/2:color=#00000000@0`,
-                '-c:v', 'libwebp',
-                '-quality', ST_CONFIG.QUALITY.toString(),
-                '-loop', '0',
-                '-an',
-                '-t', '6',
-                outputPath
-            ];
-            
-            const process = spawn('ffmpeg', args);
-            
-            process.on('close', (code) => {
-                if (code === 0 && fs.existsSync(outputPath)) {
-                    const size = fs.statSync(outputPath).size;
-                    console.log(`✅ Vídeo: ${(size / 1024).toFixed(1)}KB`);
-                    resolve(true);
-                } else {
-                    console.log(`❌ FFmpeg falhou: código ${code}`);
-                    resolve(false);
-                }
-            });
-            
-            process.on('error', (error) => {
-                console.log(`❌ Erro FFmpeg: ${error.message}`);
-                resolve(false);
-            });
-            
-            // Timeout
-            setTimeout(() => {
-                try {
-                    process.kill('SIGKILL');
-                    resolve(false);
-                } catch (e) {}
-            }, ST_CONFIG.TIMEOUT);
-            
-        } catch (error) {
-            console.log(`❌ Erro ao iniciar FFmpeg: ${error.message}`);
+        const process = spawn('ffmpeg', [
+            '-hide_banner', '-loglevel', 'error', '-y',
+            '-i', inputPath,
+            '-vf', `scale=${ST_CONFIG.SIZE}:${ST_CONFIG.SIZE}:force_original_aspect_ratio=decrease,pad=${ST_CONFIG.SIZE}:${ST_CONFIG.SIZE}:(ow-iw)/2:(oh-ih)/2:color=#00000000@0`,
+            '-c:v', 'libwebp',
+            '-quality', ST_CONFIG.QUALITY.toString(),
+            '-loop', '0', '-an', '-t', '6',
+            outputPath
+        ]);
+        
+        process.on('close', (code) => {
+            resolve(code === 0 && fs.existsSync(outputPath));
+        });
+        
+        process.on('error', () => resolve(false));
+        
+        setTimeout(() => {
+            try { process.kill('SIGKILL'); } catch (e) {}
             resolve(false);
-        }
+        }, ST_CONFIG.TIMEOUT);
     });
 }
 
 // ========================================
-// COMANDO .ST ULTRA SIMPLES
+// DETECTAR TIPO POR BUFFER
+// ========================================
+function detectType(buffer) {
+    const hex = buffer.slice(0, 16).toString('hex');
+    
+    if (hex.startsWith('474946')) return { ext: 'gif', isVideo: true };
+    if (hex.startsWith('ffd8ff')) return { ext: 'jpg', isVideo: false };
+    if (hex.startsWith('89504e47')) return { ext: 'png', isVideo: false };
+    if (hex.includes('667479706d703') || hex.includes('667479704d534e56')) return { ext: 'mp4', isVideo: true };
+    if (hex.startsWith('52494646') && hex.includes('57454250')) return { ext: 'webp', isVideo: false };
+    
+    return { ext: 'jpg', isVideo: false }; // Padrão
+}
+
+// ========================================
+// COMANDO .ST FINAL
 // ========================================
 module.exports = {
     name: "st",
     alias: ["sticker"],
-    desc: "Criar sticker simples e robusto",
-    category: "Converter",
+    desc: "Criar sticker - compatível com tudo",
+    category: "Converter", 
     usage: ".st [responda mídia]",
     react: "🔥",
     
     start: async (Yaka, m, { prefix, quoted }) => {
-        console.log('\n🔥 ========== .ST SIMPLES INICIADO ========== 🔥');
+        console.log('\n🔥 ========== .ST ULTRA COMPATÍVEL ========== 🔥');
         
-        let inputFile = null;
-        let outputFile = null;
+        let tempInput = null;
+        let tempOutput = null;
         
         try {
-            // Verificar mídia
-            if (!quoted && !m.message?.imageMessage && !m.message?.videoMessage) {
+            // Verificar se há alguma mídia disponível
+            const hasQuotedMedia = quoted && (
+                quoted.message?.imageMessage ||
+                quoted.message?.videoMessage ||
+                quoted.message?.documentMessage ||
+                quoted.fakeObj ||
+                quoted.mtype
+            );
+            
+            const hasDirectMedia = m.message && (
+                m.message.imageMessage ||
+                m.message.videoMessage ||
+                m.message.documentMessage
+            );
+            
+            if (!hasQuotedMedia && !hasDirectMedia) {
                 return m.reply(
-                    `🔥 **STICKER SIMPLES (.ST)**\n\n` +
-                    `🚀 Responda uma mídia com ${prefix}st\n\n` +
-                    `✅ **Aceita:**\n` +
-                    `• Imagens (JPG, PNG, WEBP)\n` +
-                    `• Vídeos e GIFs\n` +
-                    `• Qualidade 85 (alta)\n\n` +
-                    `⚡ **SIMPLES E FUNCIONA SEMPRE!**`
+                    `🔥 **STICKER ULTRA (.ST)**\n\n` +
+                    `📱 **Como usar:**\n` +
+                    `• Responda uma imagem com ${prefix}st\n` +
+                    `• Responda um vídeo com ${prefix}st\n` +
+                    `• Responda um GIF com ${prefix}st\n\n` +
+                    `✅ **Garantido:**\n` +
+                    `• Funciona com qualquer mídia\n` +
+                    `• Qualidade 85 sempre\n` +
+                    `• Tamanho 512x512\n\n` +
+                    `⚡ **RESPONDA UMA MÍDIA AGORA!**`
                 );
             }
             
-            // Download
-            const buffer = await simpleDownload(quoted, m);
+            console.log('📱 Mídia detectada, iniciando download...');
             
-            if (!buffer || buffer.length === 0) {
-                return m.reply('❌ **Falha no download**\n💡 Reenvie o arquivo');
+            // Download ultra compatível
+            const buffer = await ultraDownload(quoted, m);
+            
+            if (!buffer) {
+                return m.reply('❌ **Download falhou**\n💡 Responda diretamente a mídia');
             }
             
-            if (buffer.length > 20 * 1024 * 1024) {
-                return m.reply('❌ **Arquivo muito grande**\n💡 Máximo 20MB');
+            if (buffer.length > 25 * 1024 * 1024) {
+                return m.reply('❌ **Arquivo muito grande**\n💡 Máximo 25MB');
             }
             
             // Detectar tipo
-            const fileExt = simpleDetectType(buffer);
-            const isVideo = ['gif', 'mp4'].includes(fileExt);
+            const mediaType = detectType(buffer);
+            console.log(`🎯 Detectado: ${mediaType.ext} (${mediaType.isVideo ? 'vídeo' : 'imagem'})`);
             
-            console.log(`🎯 Tipo detectado: ${fileExt} (${isVideo ? 'vídeo' : 'imagem'})`);
-            
-            // Criar arquivos temporários
+            // Preparar arquivos
             const id = Date.now();
-            inputFile = path.join(ST_CONFIG.TEMP_DIR, `input_${id}.${fileExt}`);
-            outputFile = path.join(ST_CONFIG.TEMP_DIR, `sticker_${id}.webp`);
+            tempInput = path.join(ST_CONFIG.TEMP_DIR, `input_${id}.${mediaType.ext}`);
+            tempOutput = path.join(ST_CONFIG.TEMP_DIR, `output_${id}.webp`);
             
             // Salvar entrada
-            fs.writeFileSync(inputFile, buffer);
+            fs.writeFileSync(tempInput, buffer);
+            console.log(`💾 Arquivo salvo: ${(buffer.length / 1024).toFixed(1)}KB`);
             
             // Processar
-            let success = false;
-            if (isVideo) {
-                success = await processVideo(inputFile, outputFile);
-            } else {
-                success = await processImage(inputFile, outputFile);
+            const success = await processMedia(tempInput, tempOutput, mediaType.isVideo);
+            
+            if (!success || !fs.existsSync(tempOutput)) {
+                return m.reply('❌ **Processamento falhou**\n💡 Formato não suportado');
             }
             
-            if (!success) {
-                return m.reply('❌ **Erro no processamento**\n💡 Formato não suportado');
+            // Ler resultado
+            const stickerBuffer = fs.readFileSync(tempOutput);
+            
+            if (stickerBuffer.length === 0) {
+                return m.reply('❌ **Sticker vazio**\n💡 Erro no processamento');
             }
             
-            // Verificar arquivo final
-            if (!fs.existsSync(outputFile)) {
-                return m.reply('❌ **Arquivo não criado**\n💡 Tente novamente');
-            }
-            
-            const finalBuffer = fs.readFileSync(outputFile);
-            if (finalBuffer.length === 0) {
-                return m.reply('❌ **Arquivo vazio**\n💡 Tente outro formato');
-            }
-            
-            // Enviar sticker
+            // Enviar
             await Yaka.sendMessage(m.chat, { 
-                sticker: finalBuffer 
+                sticker: stickerBuffer 
             }, { quoted: m });
             
-            const finalSize = (finalBuffer.length / 1024).toFixed(1);
-            console.log(`✅ STICKER ENVIADO: ${finalSize}KB Q${ST_CONFIG.QUALITY}`);
+            console.log(`✅ STICKER ENVIADO: ${(stickerBuffer.length / 1024).toFixed(1)}KB`);
             
         } catch (error) {
-            console.error('❌ ERRO GERAL:', error.message);
+            console.error('❌ ERRO:', error.message);
             
-            let errorMsg = '❌ **Erro no sticker**\n\n';
-            
-            if (error.message.includes('Download')) {
-                errorMsg += '📥 Falha no download\n💡 Reenvie o arquivo';
+            if (error.message.includes('download') || error.message.includes('Download')) {
+                return m.reply('❌ **Falha no download**\n💡 Responda diretamente a mídia (não encaminhe)');
             } else if (error.message.includes('timeout') || error.message.includes('Timeout')) {
-                errorMsg += '⏱️ Tempo esgotado\n💡 Arquivo muito pesado';
-            } else if (error.message.includes('ENOENT')) {
-                errorMsg += '🔧 FFmpeg não encontrado\n💡 Instale o FFmpeg';
+                return m.reply('❌ **Timeout**\n💡 Arquivo muito pesado ou conexão lenta');
             } else {
-                errorMsg += '🔧 Erro técnico\n💡 Tente outro arquivo';
+                return m.reply('❌ **Erro técnico**\n💡 Tente com outro arquivo');
             }
             
-            m.reply(errorMsg);
-            
         } finally {
-            // Limpeza sempre
-            try {
-                if (inputFile && fs.existsSync(inputFile)) {
-                    fs.unlinkSync(inputFile);
-                    console.log('🗑️ Input removido');
-                }
-            } catch (e) {}
-            
-            try {
-                if (outputFile && fs.existsSync(outputFile)) {
-                    fs.unlinkSync(outputFile);
-                    console.log('🗑️ Output removido');
-                }
-            } catch (e) {}
+            // Limpeza
+            [tempInput, tempOutput].forEach(file => {
+                try {
+                    if (file && fs.existsSync(file)) {
+                        fs.unlinkSync(file);
+                    }
+                } catch (e) {}
+            });
         }
     }
 };
 
-// ========================================
-// INICIALIZAÇÃO
-// ========================================
-console.log('\n🔥 ========== .ST ULTRA SIMPLES CARREGADO ========== 🔥');
-console.log('⚡ Sistema simplificado');
-console.log('🎨 Qualidade fixa: 85 (alta)');
-console.log('📊 Tamanho: 512x512');
-console.log('🛡️ Máxima compatibilidade');
-console.log('🚀 Comando: .st [responder mídia]');
+console.log('\n🔥 ========== .ST ULTRA COMPATÍVEL CARREGADO ========== 🔥');
+console.log('📱 Compatível com TODAS as mídias do WhatsApp');
+console.log('🔄 10+ métodos de download diferentes');
+console.log('🎯 Detecção automática de tipo');
+console.log('⚡ Qualidade 85 fixa');
+console.log('🚀 Use: .st [responder mídia]');
 console.log('==========================================\n');
