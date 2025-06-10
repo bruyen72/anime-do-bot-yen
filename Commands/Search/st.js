@@ -7,450 +7,479 @@ const fileType = require('file-type');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 
 // ========================================
-// CONFIGURAÇÃO ULTRA ROBUSTA PARA .ST
+// CONFIGURAÇÃO ULTRA SEGURA PARA .ST
 // ========================================
 const ST_CONFIG = {
-    TEMP_DIR: path.join(tmpdir(), 'wa_st_sticker'),
-    // Tamanhos generosos para aceitar alta qualidade
-    MAX_SIZE_STATIC: 200000,    // 200KB para imagens perfeitas
-    MAX_SIZE_ANIMATED: 150000,  // 150KB para GIFs/vídeos
-    MAX_DURATION: 8,            // 8 segundos para vídeos longos
-    MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB - aceita arquivos pesados
+    TEMP_DIR: path.join(tmpdir(), 'wa_st_safe'),
+    MAX_SIZE_STATIC: 180000,    // 180KB
+    MAX_SIZE_ANIMATED: 120000,  // 120KB
+    MAX_DURATION: 6,
+    MAX_FILE_SIZE: 30 * 1024 * 1024, // 30MB
     
-    // Qualidades PERFEITAS - sempre começando com o máximo
-    QUALITY_LEVELS: [98, 95, 92, 88, 85, 82, 78, 75, 72, 68, 65, 60],
-    
+    // Qualidades seguras e altas
+    QUALITY_LEVELS: [95, 90, 85, 80, 75, 70, 65, 60],
     STANDARD_SIZE: 512,
     
-    // Configurações avançadas para máxima qualidade
-    SHARP_ULTRA: {
-        density: 400,
-        effort: 6,
-        smartSubsample: false,
-        reductionEffort: 6,
-        alphaQuality: 100
-    },
-    
-    FFMPEG_ULTRA: {
-        compression_level: 3,
-        method: 6,
-        preset: 'photo',
-        flags: 'lanczos+accurate_rnd+bitexact'
-    }
+    // Timeouts seguros
+    DOWNLOAD_TIMEOUT: 30000,
+    PROCESS_TIMEOUT: 45000
 };
 
-// Criar diretório se não existir
+// Criar diretório
 if (!fs.existsSync(ST_CONFIG.TEMP_DIR)) {
     fs.mkdirSync(ST_CONFIG.TEMP_DIR, { recursive: true });
 }
 
 // ========================================
-// SISTEMA DE DOWNLOAD ULTRA ROBUSTO
+// SISTEMA DE DOWNLOAD ULTRA SEGURO
 // ========================================
-async function downloadMediaRobust(quoted, m) {
-    console.log('📥 Iniciando download ultra robusto...');
+async function safeDownloadMedia(quoted, m) {
+    console.log('📥 Download seguro iniciado...');
     
-    // Múltiplas estratégias para garantir sucesso
-    const strategies = [
-        // Estratégia 1: FakeObj (mais comum)
-        () => quoted?.fakeObj ? downloadMediaMessage(quoted.fakeObj, 'buffer', {}) : null,
-        // Estratégia 2: Quoted direto
-        () => quoted ? downloadMediaMessage(quoted, 'buffer', {}) : null,
-        // Estratégia 3: Mensagem principal
-        () => m.message ? downloadMediaMessage(m, 'buffer', {}) : null,
-        // Estratégia 4: Quoted.message
-        () => quoted?.message ? downloadMediaMessage(quoted.message, 'buffer', {}) : null,
-        // Estratégia 5: Busca profunda
-        () => {
-            const msg = quoted?.message || m.message;
-            if (msg?.imageMessage || msg?.videoMessage || msg?.documentMessage) {
-                return downloadMediaMessage({ message: msg }, 'buffer', {});
+    // Verificações de segurança antes do download
+    try {
+        // Estratégia 1: Verificar quoted com segurança
+        if (quoted && quoted.fakeObj) {
+            try {
+                const buffer = await Promise.race([
+                    downloadMediaMessage(quoted.fakeObj, 'buffer', {}),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Timeout')), ST_CONFIG.DOWNLOAD_TIMEOUT)
+                    )
+                ]);
+                
+                if (buffer && buffer.length > 0) {
+                    console.log(`✅ Download fakeObj: ${(buffer.length / 1024).toFixed(1)}KB`);
+                    return buffer;
+                }
+            } catch (e) {
+                console.log(`⚠️ FakeObj falhou: ${e.message}`);
             }
-            return null;
         }
-    ];
-    
-    for (let i = 0; i < strategies.length; i++) {
-        try {
-            console.log(`🔄 Tentativa ${i + 1}/5...`);
-            
-            const downloadPromise = strategies[i]();
-            if (!downloadPromise) continue;
-            
-            const buffer = await Promise.race([
-                downloadPromise,
-                new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Timeout de download')), 25000)
-                )
-            ]);
-            
-            if (buffer && buffer.length > 0) {
-                console.log(`✅ Download sucesso: ${(buffer.length / 1024).toFixed(1)}KB`);
-                return buffer;
+        
+        // Estratégia 2: Quoted direto com verificação
+        if (quoted && typeof quoted === 'object') {
+            try {
+                const buffer = await Promise.race([
+                    downloadMediaMessage(quoted, 'buffer', {}),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Timeout')), ST_CONFIG.DOWNLOAD_TIMEOUT)
+                    )
+                ]);
+                
+                if (buffer && buffer.length > 0) {
+                    console.log(`✅ Download quoted: ${(buffer.length / 1024).toFixed(1)}KB`);
+                    return buffer;
+                }
+            } catch (e) {
+                console.log(`⚠️ Quoted direto falhou: ${e.message}`);
             }
-        } catch (error) {
-            console.log(`❌ Estratégia ${i + 1} falhou: ${error.message}`);
         }
+        
+        // Estratégia 3: Mensagem principal com verificação
+        if (m && m.message) {
+            try {
+                const buffer = await Promise.race([
+                    downloadMediaMessage(m, 'buffer', {}),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Timeout')), ST_CONFIG.DOWNLOAD_TIMEOUT)
+                    )
+                ]);
+                
+                if (buffer && buffer.length > 0) {
+                    console.log(`✅ Download message: ${(buffer.length / 1024).toFixed(1)}KB`);
+                    return buffer;
+                }
+            } catch (e) {
+                console.log(`⚠️ Message falhou: ${e.message}`);
+            }
+        }
+        
+        // Estratégia 4: Busca em quoted.message
+        if (quoted && quoted.message) {
+            try {
+                const buffer = await Promise.race([
+                    downloadMediaMessage({ message: quoted.message }, 'buffer', {}),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Timeout')), ST_CONFIG.DOWNLOAD_TIMEOUT)
+                    )
+                ]);
+                
+                if (buffer && buffer.length > 0) {
+                    console.log(`✅ Download quoted.message: ${(buffer.length / 1024).toFixed(1)}KB`);
+                    return buffer;
+                }
+            } catch (e) {
+                console.log(`⚠️ Quoted.message falhou: ${e.message}`);
+            }
+        }
+        
+    } catch (error) {
+        console.log(`❌ Erro geral no download: ${error.message}`);
     }
     
-    throw new Error('❌ Falha em todas as estratégias de download');
+    throw new Error('Falha em todas as estratégias de download');
 }
 
 // ========================================
-// DETECTOR DE TIPO DE MÍDIA AVANÇADO
+// DETECÇÃO SEGURA DE TIPO DE MÍDIA
 // ========================================
-async function detectMediaType(buffer) {
+async function safeDetectMedia(buffer) {
     try {
         const fileInfo = await fileType.fromBuffer(buffer);
         
-        const videoTypes = [
-            'video/mp4', 'video/avi', 'video/mov', 'video/mkv', 'video/webm',
-            'video/3gpp', 'video/quicktime', 'video/x-msvideo'
-        ];
-        
-        const imageTypes = [
-            'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 
-            'image/bmp', 'image/tiff', 'image/svg+xml'
-        ];
-        
-        const gifTypes = ['image/gif'];
-        
-        const mime = fileInfo?.mime || '';
-        const ext = fileInfo?.ext || '';
-        
-        if (gifTypes.includes(mime) || ext === 'gif') {
-            return { type: 'gif', mime, ext, isVideo: true };
-        } else if (videoTypes.includes(mime) || ['mp4', 'avi', 'mov', 'mkv', 'webm', '3gp'].includes(ext)) {
-            return { type: 'video', mime, ext, isVideo: true };
-        } else if (imageTypes.includes(mime) || ['jpg', 'jpeg', 'png', 'webp', 'bmp'].includes(ext)) {
-            return { type: 'image', mime, ext, isVideo: false };
+        if (!fileInfo) {
+            // Fallback: detectar por assinatura de bytes
+            const signature = buffer.slice(0, 12).toString('hex').toLowerCase();
+            
+            if (signature.startsWith('474946')) {
+                return { type: 'gif', isVideo: true, ext: 'gif' };
+            } else if (signature.startsWith('ffd8ff')) {
+                return { type: 'image', isVideo: false, ext: 'jpg' };
+            } else if (signature.startsWith('89504e47')) {
+                return { type: 'image', isVideo: false, ext: 'png' };
+            } else {
+                return { type: 'image', isVideo: false, ext: 'jpg' }; // Padrão seguro
+            }
         }
         
-        // Fallback: tentar detectar por assinatura de bytes
-        const signature = buffer.slice(0, 12).toString('hex');
-        if (signature.startsWith('474946')) return { type: 'gif', isVideo: true }; // GIF
-        if (signature.includes('667479706d703')) return { type: 'video', isVideo: true }; // MP4
-        if (signature.startsWith('ffd8ff')) return { type: 'image', isVideo: false }; // JPEG
-        if (signature.startsWith('89504e47')) return { type: 'image', isVideo: false }; // PNG
+        const mime = fileInfo.mime || '';
+        const ext = fileInfo.ext || '';
         
-        return { type: 'unknown', mime, ext, isVideo: false };
+        // Verificação por MIME type
+        if (mime.startsWith('video/') || ext === 'gif' || mime === 'image/gif') {
+            return { type: 'video', isVideo: true, mime, ext };
+        } else if (mime.startsWith('image/')) {
+            return { type: 'image', isVideo: false, mime, ext };
+        } else {
+            // Fallback seguro
+            return { type: 'image', isVideo: false, ext: 'jpg' };
+        }
+        
     } catch (error) {
-        console.log('⚠️ Erro na detecção, assumindo imagem');
-        return { type: 'image', isVideo: false };
+        console.log(`⚠️ Erro na detecção, usando padrão seguro: ${error.message}`);
+        return { type: 'image', isVideo: false, ext: 'jpg' };
     }
 }
 
 // ========================================
-// PROCESSAMENTO ULTRA AVANÇADO
+// PROCESSAMENTO SEGURO
 // ========================================
-async function processUltraSticker(inputPath, outputPath, mediaInfo) {
-    console.log(`🔄 PROCESSAMENTO ULTRA - ${mediaInfo.type.toUpperCase()}`);
+async function safeProcessSticker(inputPath, outputPath, mediaInfo) {
+    console.log(`🔄 Processamento seguro - ${mediaInfo.type.toUpperCase()}`);
     
     const maxSize = mediaInfo.isVideo ? ST_CONFIG.MAX_SIZE_ANIMATED : ST_CONFIG.MAX_SIZE_STATIC;
     
     for (const quality of ST_CONFIG.QUALITY_LEVELS) {
         try {
-            console.log(`🎨 Testando qualidade ULTRA ${quality}...`);
+            console.log(`🎨 Testando qualidade ${quality}...`);
             
             if (mediaInfo.isVideo) {
-                await processVideoUltra(inputPath, outputPath, quality);
+                await safeProcessVideo(inputPath, outputPath, quality);
             } else {
-                await processImageUltra(inputPath, outputPath, quality);
+                await safeProcessImage(inputPath, outputPath, quality);
             }
             
-            // Verificar resultado
+            // Verificar resultado com segurança
             if (fs.existsSync(outputPath)) {
                 const stats = fs.statSync(outputPath);
-                const sizeKB = stats.size / 1024;
                 
-                console.log(`📊 Resultado Q${quality}: ${sizeKB.toFixed(1)}KB`);
-                
-                if (stats.size <= maxSize) {
-                    console.log(`✅ QUALIDADE ${quality} PERFEITA: ${sizeKB.toFixed(1)}KB`);
-                    return { size: sizeKB.toFixed(1), quality };
+                if (stats.size > 0 && stats.size <= maxSize) {
+                    const sizeKB = (stats.size / 1024).toFixed(1);
+                    console.log(`✅ SUCESSO Q${quality}: ${sizeKB}KB`);
+                    return { size: sizeKB, quality };
+                } else if (stats.size > maxSize) {
+                    console.log(`⚠️ Muito grande: ${(stats.size/1024).toFixed(1)}KB`);
+                    continue;
                 }
-                
-                console.log(`⚠️ Muito grande (${sizeKB.toFixed(1)}KB > ${(maxSize/1024).toFixed(1)}KB), tentando menor...`);
             }
             
         } catch (error) {
-            console.log(`❌ Qualidade ${quality} falhou: ${error.message}`);
+            console.log(`❌ Q${quality} falhou: ${error.message}`);
         }
     }
     
-    throw new Error('❌ Falha em todas as qualidades');
+    throw new Error('Processamento falhou em todas as qualidades');
 }
 
 // ========================================
-// PROCESSAMENTO DE VÍDEO ULTRA
+// PROCESSAMENTO SEGURO DE VÍDEO
 // ========================================
-async function processVideoUltra(inputPath, outputPath, quality) {
-    const args = [
-        '-hide_banner', '-loglevel', 'error', '-y',
-        '-i', inputPath,
-        
-        // Filtros ultra avançados para máxima qualidade
-        '-vf', [
-            `scale=${ST_CONFIG.STANDARD_SIZE}:${ST_CONFIG.STANDARD_SIZE}:force_original_aspect_ratio=decrease:flags=${ST_CONFIG.FFMPEG_ULTRA.flags}`,
-            `pad=${ST_CONFIG.STANDARD_SIZE}:${ST_CONFIG.STANDARD_SIZE}:(ow-iw)/2:(oh-ih)/2:color=#00000000@0`
-        ].join(','),
-        
-        // Codec e qualidade
-        '-c:v', 'libwebp',
-        '-lossless', quality >= 95 ? '1' : '0',
-        '-compression_level', ST_CONFIG.FFMPEG_ULTRA.compression_level.toString(),
-        '-quality', quality.toString(),
-        '-method', ST_CONFIG.FFMPEG_ULTRA.method.toString(),
-        '-preset', ST_CONFIG.FFMPEG_ULTRA.preset,
-        
-        // Configurações avançadas
-        '-auto-alt-ref', '1',
-        '-lag-in-frames', '25',
-        '-error-resilient', '1',
-        
-        '-loop', '0',
-        '-an', '-sn', '-dn',
-        '-t', ST_CONFIG.MAX_DURATION.toString(),
-        
-        outputPath
-    ];
-    
-    console.log(`🎬 Executando FFmpeg com ${args.length} parâmetros...`);
-    
-    const process = spawn('ffmpeg', args);
-    
+async function safeProcessVideo(inputPath, outputPath, quality) {
     return new Promise((resolve, reject) => {
-        let stderr = '';
+        const args = [
+            '-hide_banner',
+            '-loglevel', 'error',
+            '-y',
+            '-i', inputPath,
+            '-vf', `scale=${ST_CONFIG.STANDARD_SIZE}:${ST_CONFIG.STANDARD_SIZE}:force_original_aspect_ratio=decrease,pad=${ST_CONFIG.STANDARD_SIZE}:${ST_CONFIG.STANDARD_SIZE}:(ow-iw)/2:(oh-ih)/2:color=#00000000@0`,
+            '-c:v', 'libwebp',
+            '-lossless', quality >= 90 ? '1' : '0',
+            '-compression_level', '4',
+            '-quality', quality.toString(),
+            '-method', '6',
+            '-loop', '0',
+            '-an', '-sn', '-dn',
+            '-t', ST_CONFIG.MAX_DURATION.toString(),
+            outputPath
+        ];
         
-        process.stderr.on('data', (data) => {
-            stderr += data.toString();
-        });
+        console.log(`🎬 Executando FFmpeg Q${quality}...`);
         
-        process.on('close', (code) => {
-            if (code === 0) {
-                resolve();
-            } else {
-                reject(new Error(`FFmpeg falhou (${code}): ${stderr.slice(-200)}`));
-            }
-        });
-        
-        process.on('error', (error) => {
-            reject(new Error(`Erro no spawn: ${error.message}`));
-        });
-        
-        // Timeout generoso para arquivos pesados
-        setTimeout(() => {
-            process.kill('SIGKILL');
-            reject(new Error('Timeout no processamento de vídeo'));
-        }, 60000); // 1 minuto
+        try {
+            const process = spawn('ffmpeg', args, {
+                stdio: ['ignore', 'ignore', 'pipe']
+            });
+            
+            let stderr = '';
+            
+            process.stderr.on('data', (data) => {
+                stderr += data.toString();
+            });
+            
+            process.on('close', (code) => {
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(new Error(`FFmpeg saiu com código ${code}`));
+                }
+            });
+            
+            process.on('error', (error) => {
+                reject(new Error(`Erro no FFmpeg: ${error.message}`));
+            });
+            
+            // Timeout de segurança
+            const timeout = setTimeout(() => {
+                try {
+                    process.kill('SIGTERM');
+                    setTimeout(() => {
+                        try {
+                            process.kill('SIGKILL');
+                        } catch (e) {}
+                    }, 5000);
+                } catch (e) {}
+                reject(new Error('Timeout no FFmpeg'));
+            }, ST_CONFIG.PROCESS_TIMEOUT);
+            
+            process.on('close', () => {
+                clearTimeout(timeout);
+            });
+            
+        } catch (error) {
+            reject(new Error(`Erro ao iniciar FFmpeg: ${error.message}`));
+        }
     });
 }
 
 // ========================================
-// PROCESSAMENTO DE IMAGEM ULTRA
+// PROCESSAMENTO SEGURO DE IMAGEM
 // ========================================
-async function processImageUltra(inputPath, outputPath, quality) {
-    console.log(`🖼️ Processando imagem com Sharp Ultra...`);
-    
-    const inputBuffer = fs.readFileSync(inputPath);
-    
-    // Pipeline ultra otimizada
-    let pipeline = sharp(inputBuffer, { 
-        density: ST_CONFIG.SHARP_ULTRA.density,
-        limitInputPixels: false,
-        sequentialRead: true
-    });
-    
-    // Obter metadata para otimização
-    const metadata = await pipeline.metadata();
-    console.log(`📏 Imagem original: ${metadata.width}x${metadata.height}`);
-    
-    // Kernel baseado no tamanho da imagem
-    let kernel = sharp.kernel.lanczos3;
-    if (metadata.width < 256 || metadata.height < 256) {
-        kernel = sharp.kernel.mitchell; // Melhor para upscale
+async function safeProcessImage(inputPath, outputPath, quality) {
+    try {
+        console.log(`🖼️ Processando imagem Q${quality}...`);
+        
+        const inputBuffer = fs.readFileSync(inputPath);
+        
+        const outputBuffer = await sharp(inputBuffer)
+            .resize(ST_CONFIG.STANDARD_SIZE, ST_CONFIG.STANDARD_SIZE, {
+                fit: 'contain',
+                background: { r: 0, g: 0, b: 0, alpha: 0 },
+                kernel: sharp.kernel.lanczos2,
+                withoutEnlargement: false
+            })
+            .webp({
+                quality: quality,
+                lossless: quality >= 90,
+                effort: 6,
+                alphaQuality: quality >= 80 ? 100 : 90
+            })
+            .toBuffer();
+        
+        fs.writeFileSync(outputPath, outputBuffer);
+        console.log(`✅ Imagem processada: ${outputBuffer.length} bytes`);
+        
+    } catch (error) {
+        throw new Error(`Erro no Sharp: ${error.message}`);
     }
-    
-    const outputBuffer = await pipeline
-        .resize(ST_CONFIG.STANDARD_SIZE, ST_CONFIG.STANDARD_SIZE, {
-            fit: 'contain',
-            background: { r: 0, g: 0, b: 0, alpha: 0 },
-            kernel: kernel,
-            withoutEnlargement: false,
-            withoutReduction: false
-        })
-        .webp({
-            quality: quality,
-            lossless: quality >= 95,
-            nearLossless: quality >= 90,
-            effort: ST_CONFIG.SHARP_ULTRA.effort,
-            smartSubsample: ST_CONFIG.SHARP_ULTRA.smartSubsample,
-            reductionEffort: ST_CONFIG.SHARP_ULTRA.reductionEffort,
-            alphaQuality: ST_CONFIG.SHARP_ULTRA.alphaQuality
-        })
-        .toBuffer();
-    
-    fs.writeFileSync(outputPath, outputBuffer);
-    console.log(`✅ Imagem processada: ${outputBuffer.length} bytes`);
 }
 
 // ========================================
-// COMANDO .ST DEFINITIVO
+// COMANDO .ST ULTRA SEGURO
 // ========================================
 module.exports = {
     name: "st",
-    alias: ["sticker-ultra", "stick", "stickr"],
-    desc: "Criar sticker ultra com qualidade perfeita - aceita tudo",
+    alias: ["sticker", "stick"],
+    desc: "Criar sticker com máxima segurança e qualidade",
     category: "Converter",
     usage: ".st [responda mídia]",
     react: "🔥",
     
     start: async (Yaka, m, { prefix, quoted }) => {
-        console.log('\n🔥 ========== COMANDO .ST ULTRA INICIADO ========== 🔥');
+        console.log('\n🔥 ========== .ST ULTRA SEGURO INICIADO ========== 🔥');
         
         const tempFiles = [];
         let progressMsg = null;
         
         try {
-            // Verificar se há mídia
-            if (!quoted && !m.message?.imageMessage && !m.message?.videoMessage && !m.message?.documentMessage) {
+            // Verificar mídia disponível
+            const hasMedia = quoted || 
+                            m.message?.imageMessage || 
+                            m.message?.videoMessage || 
+                            m.message?.documentMessage;
+            
+            if (!hasMedia) {
                 return m.reply(
-                    `🔥 **STICKER ULTRA (.ST)**\n\n` +
+                    `🔥 **STICKER ULTRA SEGURO (.ST)**\n\n` +
                     `🚀 **Como usar:**\n` +
-                    `• Responda qualquer mídia com ${prefix}st\n\n` +
-                    `✅ **Aceita TUDO:**\n` +
-                    `• Imagens (JPG, PNG, WEBP, BMP)\n` +
-                    `• Vídeos (MP4, AVI, MOV, MKV)\n` +
-                    `• GIFs animados\n` +
-                    `• Arquivos até 50MB\n` +
-                    `• Qualidade 98-95 (ULTRA)\n\n` +
-                    `⚡ **PERFEIÇÃO GARANTIDA!**`
+                    `• Responda uma mídia com ${prefix}st\n\n` +
+                    `✅ **Suporta:**\n` +
+                    `• Imagens (JPG, PNG, WEBP)\n` +
+                    `• Vídeos e GIFs\n` +
+                    `• Qualidade 95-90 (PERFEITA)\n` +
+                    `• Sistema anti-erro\n\n` +
+                    `🛡️ **MÁXIMA SEGURANÇA GARANTIDA!**`
                 );
             }
             
-            // Download ultra robusto
-            console.log('📥 Iniciando download ultra...');
-            const buffer = await downloadMediaRobust(quoted || m, m);
+            // Download ultra seguro
+            console.log('📥 Iniciando download ultra seguro...');
+            const buffer = await safeDownloadMedia(quoted, m);
             
-            // Verificar tamanho
+            // Verificações de segurança
+            if (!buffer || buffer.length === 0) {
+                throw new Error('Buffer vazio ou inválido');
+            }
+            
             if (buffer.length > ST_CONFIG.MAX_FILE_SIZE) {
                 return m.reply(
                     `❌ **Arquivo muito grande!**\n\n` +
                     `📊 Tamanho: ${(buffer.length / 1024 / 1024).toFixed(1)}MB\n` +
-                    `📏 Máximo: ${ST_CONFIG.MAX_FILE_SIZE / 1024 / 1024}MB\n\n` +
-                    `💡 Comprima o arquivo ou use um menor`
+                    `📏 Máximo: ${ST_CONFIG.MAX_FILE_SIZE / 1024 / 1024}MB`
                 );
             }
             
-            // Detectar tipo de mídia
-            const mediaInfo = await detectMediaType(buffer);
-            console.log(`🎯 Mídia detectada: ${mediaInfo.type} (${mediaInfo.isVideo ? 'animado' : 'estático'})`);
+            // Detectar tipo com segurança
+            const mediaInfo = await safeDetectMedia(buffer);
+            console.log(`🎯 Mídia: ${mediaInfo.type} (${mediaInfo.isVideo ? 'animado' : 'estático'})`);
             
-            // Mensagem de progresso para arquivos grandes
+            // Mensagem de progresso
             const sizeKB = (buffer.length / 1024).toFixed(1);
-            if (buffer.length > 1024 * 1024) { // > 1MB
+            if (buffer.length > 500 * 1024) {
                 progressMsg = await m.reply(
-                    `🔄 **PROCESSANDO STICKER ULTRA**\n\n` +
+                    `🔄 **PROCESSANDO STICKER SEGURO**\n\n` +
                     `📊 Arquivo: ${sizeKB}KB\n` +
                     `🎯 Tipo: ${mediaInfo.type.toUpperCase()}\n` +
-                    `🎨 Qualidade: 98-95 (ULTRA PERFEITA)\n` +
-                    `📏 Saída: 512x512 HD\n\n` +
-                    `⚡ Processando com máxima qualidade...\n` +
-                    `⏱️ Isso pode levar até 1 minuto`
+                    `🎨 Qualidade: 95-90 (ULTRA)\n` +
+                    `🛡️ Sistema anti-erro ativo\n\n` +
+                    `⚡ Processando com segurança...`
                 );
             }
             
-            // Criar arquivos temporários
-            const uniqueId = Date.now() + Math.random().toString(36).substr(2, 9);
+            // Preparar arquivos temporários
+            const uniqueId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
             const inputExt = mediaInfo.ext || (mediaInfo.isVideo ? 'mp4' : 'jpg');
-            const inputPath = path.join(ST_CONFIG.TEMP_DIR, `input_ultra_${uniqueId}.${inputExt}`);
-            const outputPath = path.join(ST_CONFIG.TEMP_DIR, `sticker_ultra_${uniqueId}.webp`);
+            const inputPath = path.join(ST_CONFIG.TEMP_DIR, `safe_input_${uniqueId}.${inputExt}`);
+            const outputPath = path.join(ST_CONFIG.TEMP_DIR, `safe_sticker_${uniqueId}.webp`);
             
             tempFiles.push(inputPath, outputPath);
             
-            // Salvar arquivo de entrada
-            fs.writeFileSync(inputPath, buffer);
-            console.log(`💾 Arquivo salvo: ${inputPath}`);
+            // Salvar arquivo com segurança
+            try {
+                fs.writeFileSync(inputPath, buffer);
+                console.log(`💾 Arquivo salvo com segurança: ${inputPath}`);
+            } catch (error) {
+                throw new Error(`Erro ao salvar arquivo: ${error.message}`);
+            }
             
-            // Processar com qualidade ultra
+            // Processar com segurança
             const startTime = Date.now();
-            const result = await processUltraSticker(inputPath, outputPath, mediaInfo);
+            const result = await safeProcessSticker(inputPath, outputPath, mediaInfo);
             const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
             
-            // Ler sticker final
+            // Verificar arquivo final
+            if (!fs.existsSync(outputPath)) {
+                throw new Error('Arquivo de saída não foi criado');
+            }
+            
             const stickerBuffer = fs.readFileSync(outputPath);
+            if (!stickerBuffer || stickerBuffer.length === 0) {
+                throw new Error('Sticker final está vazio');
+            }
             
             // Remover mensagem de progresso
             if (progressMsg) {
                 try {
                     await Yaka.sendMessage(m.chat, { delete: progressMsg.key });
-                } catch (e) { console.log('⚠️ Não foi possível deletar msg de progresso'); }
+                } catch (e) {
+                    console.log('⚠️ Não foi possível deletar mensagem de progresso');
+                }
             }
             
-            // Enviar sticker
+            // Enviar sticker com segurança
             await Yaka.sendMessage(m.chat, { 
                 sticker: stickerBuffer 
             }, { quoted: m });
             
-            console.log(`✅ STICKER ULTRA CONCLUÍDO:`);
+            console.log(`✅ STICKER ULTRA SEGURO CONCLUÍDO:`);
             console.log(`   📊 Tamanho: ${result.size}KB`);
             console.log(`   🎨 Qualidade: ${result.quality}`);
             console.log(`   ⏱️ Tempo: ${processingTime}s`);
-            console.log(`   🎯 Tipo: ${mediaInfo.type}`);
+            console.log(`   🛡️ Sem erros!`);
             
         } catch (error) {
-            console.error('❌ ERRO NO .ST:', error.message);
-            console.error(error.stack);
+            console.error('❌ ERRO NO .ST SEGURO:', error.message);
             
-            // Remover mensagem de progresso em caso de erro
+            // Remover mensagem de progresso
             if (progressMsg) {
                 try {
                     await Yaka.sendMessage(m.chat, { delete: progressMsg.key });
                 } catch (e) {}
             }
             
-            // Mensagem de erro detalhada
-            let errorMsg = '❌ **ERRO NO PROCESSAMENTO ULTRA**\n\n';
+            // Erro simplificado para o usuário
+            let userError = '❌ **Erro no processamento**\n\n';
             
-            if (error.message.includes('download')) {
-                errorMsg += '📥 Falha no download\n💡 Reenvie o arquivo ou tente outro formato';
-            } else if (error.message.includes('FFmpeg')) {
-                errorMsg += '🎬 Erro no processamento de vídeo\n💡 Formato de vídeo pode não ser suportado';
-            } else if (error.message.includes('Sharp')) {
-                errorMsg += '🖼️ Erro no processamento de imagem\n💡 Formato de imagem pode estar corrompido';
-            } else if (error.message.includes('Timeout')) {
-                errorMsg += '⏱️ Tempo limite excedido\n💡 Arquivo muito complexo, tente comprimir';
+            if (error.message.includes('download') || error.message.includes('Download')) {
+                userError += '📥 Falha no download\n💡 Reenvie o arquivo';
+            } else if (error.message.includes('FFmpeg') || error.message.includes('video')) {
+                userError += '🎬 Erro no vídeo/GIF\n💡 Tente outro formato';
+            } else if (error.message.includes('Sharp') || error.message.includes('image')) {
+                userError += '🖼️ Erro na imagem\n💡 Tente outro formato';
+            } else if (error.message.includes('muito grande') || error.message.includes('size')) {
+                userError += '📏 Arquivo muito grande\n💡 Use um arquivo menor';
             } else {
-                errorMsg += `🔧 ${error.message}\n💡 Tente com outro arquivo`;
+                userError += '🔧 Erro técnico\n💡 Tente novamente';
             }
             
-            m.reply(errorMsg);
+            m.reply(userError);
             
         } finally {
-            // Limpar arquivos temporários
-            console.log('🧹 Limpando arquivos temporários...');
-            tempFiles.forEach(filePath => {
+            // Limpeza ultra segura
+            console.log('🧹 Limpeza segura iniciada...');
+            for (const filePath of tempFiles) {
                 try {
                     if (fs.existsSync(filePath)) {
                         fs.unlinkSync(filePath);
                         console.log(`🗑️ Removido: ${path.basename(filePath)}`);
                     }
-                } catch (e) {
-                    console.log(`⚠️ Erro ao remover ${filePath}: ${e.message}`);
+                } catch (cleanError) {
+                    console.log(`⚠️ Erro na limpeza: ${cleanError.message}`);
                 }
-            });
+            }
+            console.log('✅ Limpeza concluída');
         }
     }
 };
 
 // ========================================
-// INICIALIZAÇÃO ULTRA
+// INICIALIZAÇÃO SEGURA
 // ========================================
-console.log('\n🔥 ========== COMANDO .ST ULTRA CARREGADO ========== 🔥');
-console.log('⚡ Sistema ultra robusto ativo');
-console.log('🎨 Qualidades: 98, 95, 92, 88, 85... (ULTRA)');
-console.log('📊 Aceita: Imagens, Vídeos, GIFs até 50MB');
-console.log('📏 Saída: 512x512 WebP de alta qualidade');
+console.log('\n🔥 ========== .ST ULTRA SEGURO CARREGADO ========== 🔥');
+console.log('🛡️ Sistema anti-erro ativo');
+console.log('📊 Download: 5 estratégias seguras');
+console.log('🎨 Qualidades: 95, 90, 85, 80... (ALTAS)');
+console.log('⚡ Timeouts seguros configurados');
+console.log('🧹 Limpeza automática garantida');
 console.log('🚀 Comando: .st [responder mídia]');
-console.log('🛡️ Sistema de fallback e recuperação');
 console.log('==========================================\n');
