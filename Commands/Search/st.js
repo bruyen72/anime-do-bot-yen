@@ -205,6 +205,87 @@ async function processImageSafe(inputPath, outputPath, quality) {
 }
 
 // ========================================
+// ENVIO SEGURO DE STICKER
+// ========================================
+async function safeSendSticker(Yaka, m, stickerBuffer) {
+    console.log('📤 Tentando envio seguro do sticker...');
+    
+    const sendStrategies = [
+        // Estratégia 1: Envio normal
+        async () => {
+            return await Yaka.sendMessage(m.chat, { 
+                sticker: stickerBuffer 
+            }, { quoted: m });
+        },
+        
+        // Estratégia 2: Envio sem quoted
+        async () => {
+            return await Yaka.sendMessage(m.chat, { 
+                sticker: stickerBuffer 
+            });
+        },
+        
+        // Estratégia 3: Envio com configurações mínimas
+        async () => {
+            return await Yaka.sendMessage(m.chat, { 
+                sticker: stickerBuffer 
+            }, {});
+        },
+        
+        // Estratégia 4: Usando relayMessage direto (se disponível)
+        async () => {
+            if (Yaka.relayMessage) {
+                const messageContent = {
+                    stickerMessage: {
+                        url: '',
+                        fileSha256: Buffer.alloc(32),
+                        fileEncSha256: Buffer.alloc(32),
+                        mediaKey: Buffer.alloc(32),
+                        mimetype: 'image/webp',
+                        height: 512,
+                        width: 512,
+                        directPath: '',
+                        fileLength: stickerBuffer.length,
+                        isAnimated: false
+                    }
+                };
+                
+                return await Yaka.relayMessage(m.chat, messageContent, {});
+            }
+            throw new Error('relayMessage não disponível');
+        }
+    ];
+    
+    for (let i = 0; i < sendStrategies.length; i++) {
+        try {
+            console.log(`📤 Tentativa de envio ${i + 1}/${sendStrategies.length}...`);
+            
+            const result = await Promise.race([
+                sendStrategies[i](),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout no envio')), 10000)
+                )
+            ]);
+            
+            if (result) {
+                console.log(`✅ Sticker enviado com sucesso (estratégia ${i + 1})`);
+                return true;
+            }
+            
+        } catch (error) {
+            console.log(`❌ Estratégia ${i + 1} falhou: ${error.message}`);
+            
+            // Se é erro de jidDecode, tentar próxima estratégia
+            if (error.message.includes('jidDecode') || error.message.includes('destructure')) {
+                continue;
+            }
+        }
+    }
+    
+    throw new Error('Todas as estratégias de envio falharam');
+}
+
+// ========================================
 // COMANDO ST ULTRA SEGURO
 // ========================================
 module.exports = {
@@ -228,7 +309,7 @@ module.exports = {
                     `🚀 **Como usar:**\n` +
                     `• Responda uma imagem ou vídeo com ${prefix}st\n\n` +
                     `✅ **Recursos:**\n` +
-                    `• Qualidade 88-85 (ALTA)\n` +
+                    `• Qualidade 88-65 (ALTA)\n` +
                     `• Processamento ultra seguro\n` +
                     `• Sistema anti-erro\n` +
                     `• Tamanho 512x512\n\n` +
@@ -250,14 +331,18 @@ module.exports = {
             const sizeKB = (buffer.length / 1024).toFixed(1);
             
             if (buffer.length > 500 * 1024) {
-                progressMsg = await m.reply(
-                    `🔄 **CRIANDO STICKER SEGURO**\n\n` +
-                    `📊 Arquivo: ${sizeKB}KB\n` +
-                    `🎯 Tipo: ${isVideo ? 'Vídeo/GIF animado' : 'Imagem estática'}\n` +
-                    `🎨 Qualidade: 88-85 (ALTA)\n` +
-                    `🛡️ Sistema anti-erro ativo\n\n` +
-                    `⚡ Processando com segurança...`
-                );
+                try {
+                    progressMsg = await m.reply(
+                        `🔄 **CRIANDO STICKER SEGURO**\n\n` +
+                        `📊 Arquivo: ${sizeKB}KB\n` +
+                        `🎯 Tipo: ${isVideo ? 'Vídeo/GIF animado' : 'Imagem estática'}\n` +
+                        `🎨 Qualidade: 88-65 (ALTA)\n` +
+                        `🛡️ Sistema anti-erro ativo\n\n` +
+                        `⚡ Processando com segurança...`
+                    );
+                } catch (progressError) {
+                    console.log('⚠️ Erro ao enviar progresso:', progressError.message);
+                }
             }
             
             // Arquivos temporários
@@ -285,31 +370,33 @@ module.exports = {
                 throw new Error('Arquivo de saída está vazio');
             }
             
-            // Remover progresso
+            console.log(`📤 Sticker processado: ${resultSize}KB em ${processingTime}s`);
+            
+            // Remover progresso ANTES do envio
+            if (progressMsg) {
+                try {
+                    await Yaka.sendMessage(m.chat, { delete: progressMsg.key });
+                    console.log('🗑️ Progresso removido');
+                } catch (deleteError) {
+                    console.log('⚠️ Erro ao deletar progresso:', deleteError.message);
+                }
+            }
+            
+            // Envio seguro do sticker
+            await safeSendSticker(Yaka, m, stickerBuffer);
+            
+            console.log(`✅ STICKER ENVIADO COM SUCESSO: ${resultSize}KB`);
+            
+        } catch (error) {
+            console.error('❌ ERRO NO .ST SEGURO:', error.message);
+            
+            // Remover progresso em caso de erro
             if (progressMsg) {
                 try {
                     await Yaka.sendMessage(m.chat, { delete: progressMsg.key });
                 } catch (e) {
-                    console.log('⚠️ Não foi possível deletar progresso');
+                    console.log('⚠️ Erro ao deletar progresso no catch');
                 }
-            }
-            
-            // Enviar sticker
-            await Yaka.sendMessage(m.chat, { 
-                sticker: stickerBuffer 
-            }, { quoted: m });
-            
-            console.log(`✅ STICKER SEGURO concluído: ${resultSize}KB em ${processingTime}s`);
-            
-        } catch (error) {
-            console.error('❌ ERRO NO .ST SEGURO:', error.message);
-            console.error('Stack:', error.stack);
-            
-            // Remover progresso
-            if (progressMsg) {
-                try {
-                    await Yaka.sendMessage(m.chat, { delete: progressMsg.key });
-                } catch (e) {}
             }
             
             // Erro detalhado
@@ -317,17 +404,23 @@ module.exports = {
             
             if (error.message.includes('Download')) {
                 errorMsg += '📥 Falha no download\n💡 Reenvie o arquivo';
-            } else if (error.message.includes('FFmpeg') || error.message.includes('spawn')) {
-                errorMsg += '🎬 Erro no FFmpeg\n💡 Verifique se o FFmpeg está instalado';
+            } else if (error.message.includes('jidDecode') || error.message.includes('destructure')) {
+                errorMsg += '📤 Erro no envio (Baileys)\n💡 Tente novamente';
+            } else if (error.message.includes('envio')) {
+                errorMsg += '📤 Falha no envio\n💡 Conexão instável, tente novamente';
+            } else if (error.message.includes('FFmpeg')) {
+                errorMsg += '🎬 Erro no FFmpeg\n💡 Verifique instalação';
             } else if (error.message.includes('Sharp')) {
-                errorMsg += '🖼️ Erro no processamento de imagem\n💡 Formato pode estar corrompido';
-            } else if (error.message.includes('arquivo')) {
-                errorMsg += '📁 Erro de arquivo\n💡 Permissões ou espaço em disco';
+                errorMsg += '🖼️ Erro no processamento\n💡 Formato corrompido';
             } else {
-                errorMsg += `🔧 ${error.message}\n💡 Tente novamente em alguns segundos`;
+                errorMsg += `🔧 ${error.message}\n💡 Tente novamente`;
             }
             
-            m.reply(errorMsg);
+            try {
+                await m.reply(errorMsg);
+            } catch (replyError) {
+                console.log('❌ Erro ao enviar mensagem de erro:', replyError.message);
+            }
             
         } finally {
             // Limpeza ultra segura
@@ -352,8 +445,8 @@ module.exports = {
 // ========================================
 console.log('\n🔥 ========== STICKER SEGURO (.ST) CARREGADO ========== 🔥');
 console.log('🛡️ Sistema ultra seguro ativo');
+console.log('📤 Sistema de envio com 4 estratégias');
 console.log('🎨 Qualidades seguras: 88, 85, 82, 78, 75...');
-console.log('📊 Timeouts e fallbacks configurados');
 console.log('🧹 Limpeza automática garantida');
 console.log('🚀 Comando: .st [responder mídia]');
 console.log('==========================================\n');
