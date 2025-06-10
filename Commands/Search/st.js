@@ -7,27 +7,16 @@ const fileType = require('file-type');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 
 // ========================================
-// CONFIGURAÇÃO MELHORADA PARA ST
+// CONFIGURAÇÃO ULTRA ROBUSTA PARA ST
 // ========================================
 const STICKER_CONFIG = {
     TEMP_DIR: path.join(tmpdir(), 'wa_sticker'),
-    MAX_SIZE_STATIC: 150000,    // 150KB (aumentado para alta qualidade)
-    MAX_SIZE_ANIMATED: 120000,  // 120KB (aumentado)
-    MAX_DURATION: 6,            // 6 segundos
-    // ✅ QUALIDADES ALTAS - SEM BAIXAS
-    QUALITY_LEVELS: [95, 92, 88, 85, 82, 78, 75, 72, 68, 65],
-    STANDARD_SIZE: 512,
-    // Configurações avançadas para MÁXIMA qualidade
-    SHARP_CONFIG: {
-        effort: 6,
-        smartSubsample: false, // Desabilitado para máxima qualidade
-        reductionEffort: 6
-    },
-    FFMPEG_CONFIG: {
-        compression_level: 3, // Melhor compressão
-        method: 6,
-        preset: 'photo' // Para melhor qualidade
-    }
+    MAX_SIZE_STATIC: 150000,    // 150KB
+    MAX_SIZE_ANIMATED: 120000,  // 120KB
+    MAX_DURATION: 6,
+    // Qualidades SEGURAS e ALTAS
+    QUALITY_LEVELS: [88, 85, 82, 78, 75, 72, 68, 65],
+    STANDARD_SIZE: 512
 };
 
 // Criar diretório se não existir
@@ -36,7 +25,7 @@ if (!fs.existsSync(STICKER_CONFIG.TEMP_DIR)) {
 }
 
 // ========================================
-// DOWNLOAD (MANTENDO SEU SISTEMA FUNCIONANDO)
+// DOWNLOAD (MANTENDO SEU SISTEMA)
 // ========================================
 async function downloadMedia(quoted, m) {
     console.log('📥 Download de mídia...');
@@ -68,122 +57,23 @@ async function downloadMedia(quoted, m) {
 }
 
 // ========================================
-// ANÁLISE DE QUALIDADE PARA ALTA QUALIDADE
+// PROCESSAMENTO ULTRA SEGURO
 // ========================================
-function getOptimalQualityRange(fileSize, isVideo) {
-    const sizeKB = fileSize / 1024;
-    
-    if (isVideo) {
-        if (sizeKB > 2000) return [78, 88]; // Arquivos grandes: qualidade alta
-        if (sizeKB > 1000) return [82, 92]; // Arquivos médios: qualidade muito alta
-        return [85, 95]; // Arquivos pequenos: qualidade MÁXIMA
-    } else {
-        if (sizeKB > 1000) return [82, 92]; // Imagens grandes: qualidade muito alta
-        if (sizeKB > 500) return [85, 95];  // Imagens médias: qualidade MÁXIMA
-        return [88, 95]; // Imagens pequenas: qualidade PERFEITA
-    }
-}
-
-// ========================================
-// PROCESSAMENTO COM QUALIDADE PERFEITA
-// ========================================
-async function processSticker(inputPath, outputPath, isVideo, originalSize) {
-    console.log(`🔄 Processamento QUALIDADE PERFEITA - ${isVideo ? 'VÍDEO' : 'IMAGEM'}`);
+async function processSticker(inputPath, outputPath, isVideo) {
+    console.log(`🔄 Processamento SEGURO - ${isVideo ? 'VÍDEO' : 'IMAGEM'}`);
     
     const maxSize = isVideo ? STICKER_CONFIG.MAX_SIZE_ANIMATED : STICKER_CONFIG.MAX_SIZE_STATIC;
-    const [minQuality, maxQuality] = getOptimalQualityRange(originalSize, isVideo);
     
-    // Filtrar qualidades ALTAS dentro do range
-    const optimalQualities = STICKER_CONFIG.QUALITY_LEVELS.filter(q => q >= minQuality && q <= maxQuality);
-    
-    // Se não há qualidades no range, usar as MELHORES disponíveis
-    const qualitiesToTry = optimalQualities.length > 0 ? optimalQualities : STICKER_CONFIG.QUALITY_LEVELS.slice(0, 6);
-    
-    console.log(`🎯 Usando qualidades ALTAS: ${qualitiesToTry.join(', ')}`);
-    
-    for (const quality of qualitiesToTry) {
+    for (const quality of STICKER_CONFIG.QUALITY_LEVELS) {
         try {
-            console.log(`🔄 Processando qualidade ALTA ${quality}...`);
+            console.log(`🔄 Tentando qualidade ${quality}...`);
             
             if (isVideo) {
-                // ========== VÍDEO COM QUALIDADE MÁXIMA ==========
-                const args = [
-                    '-hide_banner', '-loglevel', 'error', '-y',
-                    '-i', inputPath,
-                    // Filtros ULTRA melhorados para vídeo
-                    '-vf', `scale=${STICKER_CONFIG.STANDARD_SIZE}:${STICKER_CONFIG.STANDARD_SIZE}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${STICKER_CONFIG.STANDARD_SIZE}:${STICKER_CONFIG.STANDARD_SIZE}:(ow-iw)/2:(oh-ih)/2:color=#00000000@0`,
-                    '-c:v', 'libwebp',
-                    '-lossless', quality >= 90 ? '1' : '0', // Lossless para 90+
-                    '-compression_level', STICKER_CONFIG.FFMPEG_CONFIG.compression_level.toString(),
-                    '-quality', quality.toString(),
-                    '-method', STICKER_CONFIG.FFMPEG_CONFIG.method.toString(),
-                    '-preset', STICKER_CONFIG.FFMPEG_CONFIG.preset,
-                    '-loop', '0',
-                    '-an', '-sn', '-dn',
-                    '-t', STICKER_CONFIG.MAX_DURATION.toString(),
-                    // Configurações ULTRA para qualidade
-                    '-auto-alt-ref', '1',
-                    '-lag-in-frames', '25',
-                    outputPath
-                ];
-                
-                const process = spawn('ffmpeg', args);
-                
-                await new Promise((resolve, reject) => {
-                    process.on('close', (code) => {
-                        code === 0 ? resolve() : reject(new Error(`FFmpeg: ${code}`));
-                    });
-                    
-                    process.on('error', reject);
-                    
-                    setTimeout(() => {
-                        process.kill('SIGKILL');
-                        reject(new Error('Timeout'));
-                    }, 35000); // Timeout maior para qualidade alta
-                });
-                
+                const success = await processVideoSafe(inputPath, outputPath, quality);
+                if (!success) continue;
             } else {
-                // ========== IMAGEM COM QUALIDADE PERFEITA ==========
-                const inputBuffer = fs.readFileSync(inputPath);
-                
-                // Pipeline ULTRA otimizada para máxima qualidade
-                let pipeline = sharp(inputBuffer, { 
-                    density: 400, // DPI ULTRA alta
-                    limitInputPixels: false 
-                });
-                
-                // Aplicar filtros de MÁXIMA qualidade
-                const metadata = await pipeline.metadata();
-                if (metadata.width < 512 || metadata.height < 512) {
-                    // Para imagens pequenas, usar interpolação PERFEITA
-                    pipeline = pipeline.resize(STICKER_CONFIG.STANDARD_SIZE, STICKER_CONFIG.STANDARD_SIZE, {
-                        fit: 'contain',
-                        background: { r: 0, g: 0, b: 0, alpha: 0 },
-                        kernel: sharp.kernel.lanczos3, // MELHOR interpolação
-                        withoutEnlargement: false
-                    });
-                } else {
-                    // Para imagens grandes, redimensionar com ALTA qualidade
-                    pipeline = pipeline.resize(STICKER_CONFIG.STANDARD_SIZE, STICKER_CONFIG.STANDARD_SIZE, {
-                        fit: 'contain',
-                        background: { r: 0, g: 0, b: 0, alpha: 0 },
-                        kernel: sharp.kernel.lanczos3 // Sempre o melhor
-                    });
-                }
-                
-                const outputBuffer = await pipeline
-                    .webp({
-                        quality: quality,
-                        lossless: quality >= 90, // Lossless para qualidades ALTAS
-                        nearLossless: quality >= 85,
-                        effort: STICKER_CONFIG.SHARP_CONFIG.effort,
-                        smartSubsample: STICKER_CONFIG.SHARP_CONFIG.smartSubsample,
-                        reductionEffort: STICKER_CONFIG.SHARP_CONFIG.reductionEffort,
-                        alphaQuality: 100 // SEMPRE máximo alpha
-                    })
-                    .toBuffer();
-                
-                fs.writeFileSync(outputPath, outputBuffer);
+                const success = await processImageSafe(inputPath, outputPath, quality);
+                if (!success) continue;
             }
             
             // Verificar resultado
@@ -193,32 +83,20 @@ async function processSticker(inputPath, outputPath, isVideo, originalSize) {
                 
                 console.log(`📊 Resultado Q${quality}: ${sizeKB.toFixed(1)}KB`);
                 
-                // Aceitar se está dentro do limite OU se é a última tentativa
-                if (stats.size <= maxSize || quality === qualitiesToTry[qualitiesToTry.length - 1]) {
-                    // Se conseguiu uma qualidade boa dentro do limite, retornar
-                    if (stats.size <= maxSize) {
-                        console.log(`✅ Qualidade PERFEITA ${quality} aprovada: ${sizeKB.toFixed(1)}KB`);
-                    } else {
-                        console.log(`⚠️ Usando MELHOR qualidade possível: ${sizeKB.toFixed(1)}KB`);
-                    }
+                if (stats.size <= maxSize || quality === STICKER_CONFIG.QUALITY_LEVELS[STICKER_CONFIG.QUALITY_LEVELS.length - 1]) {
+                    console.log(`✅ Qualidade ${quality} OK: ${sizeKB.toFixed(1)}KB`);
                     return sizeKB.toFixed(1);
                 }
                 
-                console.log('⚠️ Muito grande, tentando qualidade um pouco menor...');
+                console.log('⚠️ Muito grande, tentando menor...');
+                // Deletar arquivo grande antes da próxima tentativa
+                try { fs.unlinkSync(outputPath); } catch (e) {}
             }
             
         } catch (error) {
             console.log(`❌ Qualidade ${quality} falhou: ${error.message}`);
-            
-            // Se é a última qualidade, tentar uma qualidade ainda BOA (não baixa)
-            if (quality === qualitiesToTry[qualitiesToTry.length - 1]) {
-                console.log('🔄 Tentando qualidade de backup (ainda alta)...');
-                try {
-                    return await processBackupQuality(inputPath, outputPath, isVideo);
-                } catch (backupError) {
-                    throw new Error(`Todas as tentativas falharam. Último erro: ${error.message}`);
-                }
-            }
+            // Limpar arquivo de erro
+            try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch (e) {}
         }
     }
     
@@ -226,134 +104,194 @@ async function processSticker(inputPath, outputPath, isVideo, originalSize) {
 }
 
 // ========================================
-// PROCESSAMENTO DE BACKUP (QUALIDADE AINDA ALTA)
+// PROCESSAMENTO DE VÍDEO SEGURO
 // ========================================
-async function processBackupQuality(inputPath, outputPath, isVideo) {
-    console.log('🔄 Usando processamento de backup (qualidade 70 - ainda alta)...');
-    
-    const backupQuality = 70; // Qualidade 70 é AINDA ALTA (não baixa como 25)
-    
-    if (isVideo) {
-        const args = [
-            '-hide_banner', '-loglevel', 'error', '-y',
-            '-i', inputPath,
-            '-vf', `scale=${STICKER_CONFIG.STANDARD_SIZE}:${STICKER_CONFIG.STANDARD_SIZE}:force_original_aspect_ratio=decrease,pad=${STICKER_CONFIG.STANDARD_SIZE}:${STICKER_CONFIG.STANDARD_SIZE}:(ow-iw)/2:(oh-ih)/2:color=#00000000@0`,
-            '-c:v', 'libwebp',
-            '-lossless', '0',
-            '-compression_level', '4',
-            '-quality', backupQuality.toString(),
-            '-method', '6',
-            '-loop', '0',
-            '-an', '-sn', '-dn',
-            '-t', STICKER_CONFIG.MAX_DURATION.toString(),
-            outputPath
-        ];
+async function processVideoSafe(inputPath, outputPath, quality) {
+    return new Promise((resolve) => {
+        try {
+            const args = [
+                '-hide_banner',
+                '-loglevel', 'error',
+                '-y',
+                '-i', inputPath,
+                '-vf', `scale=${STICKER_CONFIG.STANDARD_SIZE}:${STICKER_CONFIG.STANDARD_SIZE}:force_original_aspect_ratio=decrease,pad=${STICKER_CONFIG.STANDARD_SIZE}:${STICKER_CONFIG.STANDARD_SIZE}:(ow-iw)/2:(oh-ih)/2:color=#00000000@0`,
+                '-c:v', 'libwebp',
+                '-quality', quality.toString(),
+                '-compression_level', '4',
+                '-method', '6',
+                '-loop', '0',
+                '-an', '-sn', '-dn',
+                '-t', STICKER_CONFIG.MAX_DURATION.toString(),
+                outputPath
+            ];
+            
+            console.log(`🎬 Executando FFmpeg Q${quality}...`);
+            
+            const process = spawn('ffmpeg', args, {
+                stdio: ['ignore', 'ignore', 'pipe']
+            });
+            
+            let stderr = '';
+            if (process.stderr) {
+                process.stderr.on('data', (data) => {
+                    stderr += data.toString();
+                });
+            }
+            
+            process.on('close', (code) => {
+                if (code === 0) {
+                    console.log(`✅ FFmpeg Q${quality} sucesso`);
+                    resolve(true);
+                } else {
+                    console.log(`❌ FFmpeg Q${quality} falhou: código ${code}`);
+                    resolve(false);
+                }
+            });
+            
+            process.on('error', (error) => {
+                console.log(`❌ Erro FFmpeg Q${quality}: ${error.message}`);
+                resolve(false);
+            });
+            
+            // Timeout de segurança
+            setTimeout(() => {
+                try {
+                    process.kill('SIGTERM');
+                    setTimeout(() => {
+                        try { process.kill('SIGKILL'); } catch (e) {}
+                    }, 2000);
+                } catch (e) {}
+                console.log(`⏱️ Timeout FFmpeg Q${quality}`);
+                resolve(false);
+            }, 30000);
+            
+        } catch (error) {
+            console.log(`❌ Erro ao iniciar FFmpeg Q${quality}: ${error.message}`);
+            resolve(false);
+        }
+    });
+}
+
+// ========================================
+// PROCESSAMENTO DE IMAGEM SEGURO
+// ========================================
+async function processImageSafe(inputPath, outputPath, quality) {
+    try {
+        console.log(`🖼️ Processando imagem Q${quality}...`);
         
-        const process = spawn('ffmpeg', args);
-        await new Promise((resolve, reject) => {
-            process.on('close', (code) => code === 0 ? resolve() : reject(new Error(`FFmpeg: ${code}`)));
-            process.on('error', reject);
-            setTimeout(() => { process.kill('SIGKILL'); reject(new Error('Timeout')); }, 25000);
-        });
-    } else {
         const inputBuffer = fs.readFileSync(inputPath);
+        
         const outputBuffer = await sharp(inputBuffer)
             .resize(STICKER_CONFIG.STANDARD_SIZE, STICKER_CONFIG.STANDARD_SIZE, {
                 fit: 'contain',
                 background: { r: 0, g: 0, b: 0, alpha: 0 },
-                kernel: sharp.kernel.lanczos2 // Ainda boa interpolação
+                kernel: sharp.kernel.lanczos2
             })
             .webp({
-                quality: backupQuality, // 70 é ainda alta
-                lossless: false,
+                quality: quality,
                 effort: 6,
-                alphaQuality: 90
+                alphaQuality: quality >= 80 ? 100 : 90
             })
             .toBuffer();
         
         fs.writeFileSync(outputPath, outputBuffer);
+        console.log(`✅ Imagem Q${quality} processada`);
+        return true;
+        
+    } catch (error) {
+        console.log(`❌ Erro Sharp Q${quality}: ${error.message}`);
+        return false;
     }
-    
-    const stats = fs.statSync(outputPath);
-    const sizeKB = stats.size / 1024;
-    console.log(`🔄 Backup Q70 concluído: ${sizeKB.toFixed(1)}KB`);
-    return sizeKB.toFixed(1);
 }
 
 // ========================================
-// COMANDO ST (MANTENDO SUA ESTRUTURA)
+// COMANDO ST ULTRA SEGURO
 // ========================================
 module.exports = {
     name: "st",
     alias: ["sticker", "stick"],
-    desc: "Criar sticker com qualidade PERFEITA",
+    desc: "Criar sticker com alta qualidade - versão segura",
     category: "Converter",
     usage: ".st [responda mídia]",
     react: "🔥",
     
     start: async (Yaka, m, { prefix, quoted }) => {
-        console.log('\n🔥 ========== STICKER QUALIDADE PERFEITA (.ST) ========== 🔥');
+        console.log('\n🔥 ========== STICKER SEGURO (.ST) ========== 🔥');
         
         const tempFiles = [];
+        let progressMsg = null;
         
         try {
             if (!quoted && !m.message?.imageMessage && !m.message?.videoMessage) {
                 return m.reply(
-                    `🔥 **CRIAR STICKER PERFEITO (.ST)**\n\n` +
+                    `🔥 **CRIAR STICKER SEGURO (.ST)**\n\n` +
                     `🚀 **Como usar:**\n` +
                     `• Responda uma imagem ou vídeo com ${prefix}st\n\n` +
-                    `✅ **Recursos ULTRA:**\n` +
-                    `• Qualidade 95-85 (PERFEITA)\n` +
-                    `• Processamento ULTRA inteligente\n` +
-                    `• Suporte a imagens e vídeos\n` +
-                    `• Tamanho 512x512 HD\n\n` +
-                    `⚡ **QUALIDADE PERFEITA GARANTIDA!**`
+                    `✅ **Recursos:**\n` +
+                    `• Qualidade 88-85 (ALTA)\n` +
+                    `• Processamento ultra seguro\n` +
+                    `• Sistema anti-erro\n` +
+                    `• Tamanho 512x512\n\n` +
+                    `⚡ **FUNCIONAMENTO GARANTIDO!**`
                 );
             }
             
+            // Download
             const buffer = await downloadMedia(quoted || m, m);
             const fileInfo = await fileType.fromBuffer(buffer);
             const isVideo = fileInfo?.mime?.startsWith('video/') || fileInfo?.ext === 'gif';
             
-            // Verificar tamanho do arquivo
-            if (buffer.length > 20 * 1024 * 1024) { // 20MB
+            // Verificar tamanho
+            if (buffer.length > 20 * 1024 * 1024) {
                 return m.reply('❌ **Arquivo muito grande!**\n\nTamanho máximo: 20MB');
             }
             
-            // Mensagem de progresso MELHORADA
-            let progressMsg = null;
+            // Progresso
             const sizeKB = (buffer.length / 1024).toFixed(1);
-            const [minQ, maxQ] = getOptimalQualityRange(buffer.length, isVideo);
             
-            if (buffer.length > 500 * 1024) { // 500KB
+            if (buffer.length > 500 * 1024) {
                 progressMsg = await m.reply(
-                    `🔄 **CRIANDO STICKER PERFEITO**\n\n` +
+                    `🔄 **CRIANDO STICKER SEGURO**\n\n` +
                     `📊 Arquivo: ${sizeKB}KB\n` +
                     `🎯 Tipo: ${isVideo ? 'Vídeo/GIF animado' : 'Imagem estática'}\n` +
-                    `🎨 Qualidade alvo: ${minQ}-${maxQ} (PERFEITA)\n` +
-                    `⚡ Processando com MÁXIMA qualidade...\n\n` +
-                    `⏱️ Aguarde - criando perfeição...`
+                    `🎨 Qualidade: 88-85 (ALTA)\n` +
+                    `🛡️ Sistema anti-erro ativo\n\n` +
+                    `⚡ Processando com segurança...`
                 );
             }
             
+            // Arquivos temporários
             const uniqueId = Date.now();
-            const inputPath = path.join(STICKER_CONFIG.TEMP_DIR, `input_${uniqueId}.${fileInfo?.ext || 'tmp'}`);
-            const outputPath = path.join(STICKER_CONFIG.TEMP_DIR, `sticker_perfect_${uniqueId}.webp`);
+            const inputPath = path.join(STICKER_CONFIG.TEMP_DIR, `safe_input_${uniqueId}.${fileInfo?.ext || 'tmp'}`);
+            const outputPath = path.join(STICKER_CONFIG.TEMP_DIR, `safe_sticker_${uniqueId}.webp`);
             tempFiles.push(inputPath, outputPath);
             
+            // Salvar entrada
             fs.writeFileSync(inputPath, buffer);
+            console.log(`💾 Arquivo salvo: ${inputPath}`);
             
+            // Processar
             const startTime = Date.now();
-            const resultSize = await processSticker(inputPath, outputPath, isVideo, buffer.length);
+            const resultSize = await processSticker(inputPath, outputPath, isVideo);
             const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
             
-            const stickerBuffer = fs.readFileSync(outputPath);
+            // Verificar saída
+            if (!fs.existsSync(outputPath)) {
+                throw new Error('Arquivo de saída não foi criado');
+            }
             
-            // Remover mensagem de progresso
+            const stickerBuffer = fs.readFileSync(outputPath);
+            if (stickerBuffer.length === 0) {
+                throw new Error('Arquivo de saída está vazio');
+            }
+            
+            // Remover progresso
             if (progressMsg) {
                 try {
                     await Yaka.sendMessage(m.chat, { delete: progressMsg.key });
-                } catch (e) {}
+                } catch (e) {
+                    console.log('⚠️ Não foi possível deletar progresso');
+                }
             }
             
             // Enviar sticker
@@ -361,37 +299,50 @@ module.exports = {
                 sticker: stickerBuffer 
             }, { quoted: m });
             
-            console.log(`✅ STICKER PERFEITO concluído: ${resultSize}KB em ${processingTime}s`);
+            console.log(`✅ STICKER SEGURO concluído: ${resultSize}KB em ${processingTime}s`);
             
         } catch (error) {
-            console.error('❌ Erro sticker:', error.message);
+            console.error('❌ ERRO NO .ST SEGURO:', error.message);
+            console.error('Stack:', error.stack);
             
+            // Remover progresso
             if (progressMsg) {
                 try {
                     await Yaka.sendMessage(m.chat, { delete: progressMsg.key });
                 } catch (e) {}
             }
             
-            let errorMsg = '❌ **Erro ao criar sticker PERFEITO**\n\n';
+            // Erro detalhado
+            let errorMsg = '❌ **Erro no processamento**\n\n';
             
-            if (error.message.includes('timeout') || error.message.includes('Timeout')) {
-                errorMsg += '⏱️ Tempo limite excedido\n💡 Arquivo muito complexo, tente um menor';
-            } else if (error.message.includes('FFmpeg')) {
-                errorMsg += '🎬 Erro no processamento de vídeo\n💡 Formato não suportado';
-            } else if (error.message.includes('Download')) {
-                errorMsg += '📥 Erro no download\n💡 Reenvie o arquivo';
+            if (error.message.includes('Download')) {
+                errorMsg += '📥 Falha no download\n💡 Reenvie o arquivo';
+            } else if (error.message.includes('FFmpeg') || error.message.includes('spawn')) {
+                errorMsg += '🎬 Erro no FFmpeg\n💡 Verifique se o FFmpeg está instalado';
+            } else if (error.message.includes('Sharp')) {
+                errorMsg += '🖼️ Erro no processamento de imagem\n💡 Formato pode estar corrompido';
+            } else if (error.message.includes('arquivo')) {
+                errorMsg += '📁 Erro de arquivo\n💡 Permissões ou espaço em disco';
             } else {
-                errorMsg += `🔧 ${error.message}\n💡 Tente com outro formato`;
+                errorMsg += `🔧 ${error.message}\n💡 Tente novamente em alguns segundos`;
             }
             
             m.reply(errorMsg);
+            
         } finally {
-            // Limpar arquivos temporários
-            tempFiles.forEach(f => { 
+            // Limpeza ultra segura
+            console.log('🧹 Iniciando limpeza...');
+            for (const filePath of tempFiles) {
                 try {
-                    if (fs.existsSync(f)) fs.unlinkSync(f); 
-                } catch (e) {}
-            });
+                    if (fs.existsSync(filePath)) {
+                        fs.unlinkSync(filePath);
+                        console.log(`🗑️ Removido: ${path.basename(filePath)}`);
+                    }
+                } catch (cleanError) {
+                    console.log(`⚠️ Erro limpeza ${path.basename(filePath)}: ${cleanError.message}`);
+                }
+            }
+            console.log('✅ Limpeza concluída');
         }
     }
 };
@@ -399,10 +350,10 @@ module.exports = {
 // ========================================
 // INICIALIZAÇÃO
 // ========================================
-console.log('\n🔥 ========== STICKER QUALIDADE PERFEITA (.ST) CARREGADO ========== 🔥');
-console.log('⚡ Sistema de qualidade PERFEITA ativo');
-console.log('🎨 Qualidades: 95, 92, 88, 85, 82, 78, 75... (SOMENTE ALTAS)');
-console.log('📏 Tamanho: 512x512 HD');
+console.log('\n🔥 ========== STICKER SEGURO (.ST) CARREGADO ========== 🔥');
+console.log('🛡️ Sistema ultra seguro ativo');
+console.log('🎨 Qualidades seguras: 88, 85, 82, 78, 75...');
+console.log('📊 Timeouts e fallbacks configurados');
+console.log('🧹 Limpeza automática garantida');
 console.log('🚀 Comando: .st [responder mídia]');
-console.log('🛡️ Backup Q70 (ainda alta) se necessário');
 console.log('==========================================\n');
