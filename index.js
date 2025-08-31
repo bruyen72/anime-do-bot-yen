@@ -1205,7 +1205,7 @@ async function startYaka() {
            memoryManager.cleanup('aggressive');
        } catch (e) {}
        
-       const backoffDelay = Math.min(3000 * Math.pow(1.5, reconnectAttempts), 45000);
+       const backoffDelay = Math.min(3000 * Math.pow(1.5, connectionManager?.getConnectionStatus()?.reconnectAttempts || 0), 45000);
        logger.info(`🔄 Reiniciando em ${Math.round(backoffDelay/1000)}s...`);
        
        setTimeout(startYaka, backoffDelay);
@@ -1381,7 +1381,7 @@ app.get("/", (req, res) => {
                <h3>🔧 Sistema</h3>
                <p><strong>Comandos Ativos:</strong> ${loadBalancer.commandsPending}</p>
                <p><strong>Fila:</strong> ${heavyCommandQueue.length}</p>
-               <p><strong>Reconexões:</strong> ${reconnectAttempts}</p>
+               <p><strong>Reconexões:</strong> ${connectionManager?.getConnectionStatus()?.reconnectAttempts || 0}</p>
            </div>
        </div>
        
@@ -1777,7 +1777,7 @@ app.get("/stats", (req, res) => {
                    load: loadBalancer.isHighLoad ? 'Alto' : 'Normal',
                    commands_pending: loadBalancer.commandsPending,
                    queue_size: heavyCommandQueue.length,
-                   reconnect_count: reconnectAttempts
+                   reconnect_count: connectionManager?.getConnectionStatus()?.reconnectAttempts || 0
                }
            },
            chrome: {
