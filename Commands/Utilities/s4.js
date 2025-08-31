@@ -3,7 +3,7 @@ const { writeFile, unlink, access, stat } = require('fs/promises');
 const { tmpdir } = require('os');
 const { join } = require('path');
 const smartStickerConverter = require('../../lib/SmartStickerConverter');
-const videoStickerConverter = require('../../lib/VideoStickerConverter');
+const smartVideoProcessor = require('../../lib/SmartVideoProcessor');
 
 // Logger colorido para stickers
 class StickerLogger {
@@ -70,6 +70,38 @@ function convertToBuffer(data) {
     return Buffer.from(data, 'base64');
   }
   return Buffer.from(data);
+}
+
+// Criar sticker de erro para vídeos
+async function createVideoErrorSticker(videoSize, errorMsg) {
+  const svgError = `
+    <svg width="512" height="512" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="errorBg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:#e74c3c;stop-opacity:1" />
+          <stop offset="100%" style="stop-color:#c0392b;stop-opacity:1" />
+        </linearGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#errorBg)"/>
+      
+      <!-- Ícone de erro -->
+      <circle cx="256" cy="180" r="60" fill="rgba(255,255,255,0.9)"/>
+      <text x="256" y="200" font-family="Arial" font-size="40" fill="#e74c3c" text-anchor="middle">⚠️</text>
+      
+      <!-- Texto de erro -->
+      <text x="256" y="280" font-family="Arial" font-size="18" font-weight="bold" fill="white" text-anchor="middle">ERRO NO VÍDEO</text>
+      <text x="256" y="310" font-family="Arial" font-size="12" fill="rgba(255,255,255,0.9)" text-anchor="middle">Tamanho: ${Math.round(videoSize/1024)}KB</text>
+      <text x="256" y="340" font-family="Arial" font-size="10" fill="rgba(255,255,255,0.7)" text-anchor="middle">${errorMsg.substring(0, 40)}...</text>
+      
+      <!-- Rodapé -->
+      <text x="256" y="380" font-family="Arial" font-size="11" fill="rgba(255,255,255,0.6)" text-anchor="middle">Tente outro formato de vídeo</text>
+      <text x="256" y="400" font-family="Arial" font-size="10" fill="rgba(255,255,255,0.5)" text-anchor="middle">ou use .ss como alternativa</text>
+    </svg>`;
+  
+  return await sharp(Buffer.from(svgError))
+    .resize(512, 512)
+    .webp({ quality: 80 })
+    .toBuffer();
 }
 
 async function handleStickerCommand(sock, msg, sendMessage) {
@@ -158,21 +190,32 @@ async function handleStickerCommand(sock, msg, sendMessage) {
       StickerLogger.success(`Download concluído: ${mediaBuffer.length} bytes`);
 
       if (isVideo) {
-        // Para vídeos, usar o novo sistema sem FFmpeg
-        StickerLogger.process('Convertendo vídeo para sticker sem FFmpeg...');
+        // Para vídeos, usar SmartVideoProcessor
+        StickerLogger.process('Processando vídeo com sistema inteligente...');
         
         try {
-          // Verificar se pode processar o vídeo
-          const canProcess = await videoStickerConverter.canProcessVideo(mediaBuffer);
-          StickerLogger.info(`Vídeo processável: ${canProcess ? 'Sim' : 'Não (usando fallback)'}`);
+          // Verificar se é um vídeo válido
+          const isValid = smartVideoProcessor.isValidVideo(mediaBuffer);
+          StickerLogger.info(`Vídeo válido: ${isValid ? 'Sim' : 'Não'}`);
           
-          const stickerBuffer = await videoStickerConverter.convertVideoToSticker(mediaBuffer, {
-            quality: 80,
+          if (!isValid) {
+            await sendMessage(chatId, '*[⚠️]* Formato de vídeo não suportado. Tente outro vídeo!');
+            return;
+          }
+
+          // Mostrar status do sistema
+          const status = smartVideoProcessor.getStatus();
+          StickerLogger.info(`Sistema: ${status.hasFFmpeg ? 'FFmpeg disponível' : 'Modo fallback'}`);
+
+          // Processar vídeo (FFmpeg ou fallback inteligente)
+          const stickerBuffer = await smartVideoProcessor.processVideo(mediaBuffer, {
+            timePosition: '00:00:02',
             width: 512,
-            height: 512
+            height: 512,
+            quality: 85
           });
 
-          StickerLogger.success(`Sticker de vídeo criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
+          StickerLogger.success(`Sticker criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
 
           await sock.sendMessage(chatId, {
             sticker: stickerBuffer
@@ -180,14 +223,14 @@ async function handleStickerCommand(sock, msg, sendMessage) {
             quoted: msg
           });
 
-          StickerLogger.success("Sticker de vídeo enviado com sucesso!");
+          StickerLogger.success("Sticker de vídeo enviado!");
           
           // Limpeza periódica
-          setTimeout(() => videoStickerConverter.cleanup(), 5000);
+          setTimeout(() => smartVideoProcessor.cleanup(), 15000);
           
         } catch (videoError) {
-          StickerLogger.error(`Erro no vídeo: ${videoError.message}`);
-          await sendMessage(chatId, '*[⚠️]* Erro ao processar vídeo. Tente com uma imagem ou use .ss!');
+          StickerLogger.error(`Erro no processamento: ${videoError.message}`);
+          await sendMessage(chatId, `*[❌]* Erro ao processar vídeo: ${videoError.message}`);
         }
         return;
       } else {
@@ -243,7 +286,7 @@ async function handleStickerCommand(sock, msg, sendMessage) {
 module.exports = {
   name: "s4",
   alias: ["sticker4", "fig4"],
-  desc: "Converte imagem/vídeo para sticker SEM FFmpeg (incluindo view once) - Sistema inteligente",
+  desc: "Converte imagem/vídeo para sticker - Sistema Inteligente (FFmpeg quando disponível)",
   category: "Utilities",
   usage: ".s4 [responda uma imagem ou vídeo]",
   react: "🎨",

@@ -10,16 +10,21 @@
   3. Imagens de fallback categorizadas
 - **Cache:** 20 minutos para performance
 
-### 🖼️ **Sticker sem FFmpeg**
-- **Arquivos:** `Commands/Search/s.js` (refeito), `Commands/Utilities/s4.js` (convertido TS→JS)
-- **Solução:** Sistema com múltiplos fallbacks:
-  1. FFmpeg (se disponível)
-  2. SmartStickerConverter usando Sharp
-  3. VideoStickerConverter para vídeos sem FFmpeg
-  4. Jimp como backup
-  5. Sticker informativo para vídeos
-- **Suporte:** Imagens, vídeos, view once messages
-- **Novo:** s4.js agora processa vídeos SEM FFmpeg!
+### 🖼️ **Sistema de Sticker Inteligente**
+- **Arquivos:** `Commands/Search/s.js`, `Commands/Utilities/s4.js` (TS→JS)
+- **Nova Tecnologia:** SmartVideoProcessor com detecção automática
+- **Sistema Híbrido:**
+  1. **FFmpeg-static** (quando disponível) - Extrai frames reais
+  2. **FFmpeg do sistema** (fallback secundário)
+  3. **Stickers informativos** (quando FFmpeg não disponível)
+  4. **SmartStickerConverter** para imagens
+  5. **Sharp + Jimp** como backups
+- **Recursos Avançados:**
+  - Detecção automática de FFmpeg
+  - Placeholders bonitos com gradiente
+  - Suporte a view once messages
+  - Limpeza automática de arquivos
+- **Resultado:** s4.js funciona SEMPRE, com ou sem FFmpeg!
 
 ### 🔧 **Sistema de instalação automática**
 - **Arquivo:** `install-chrome.js` (novo)
@@ -69,15 +74,18 @@
 - `lib/SimpleConnection.js` - QR Code e conexão estáveis
 - `lib/QRManager.js` - Gerenciador de QR avançado
 - `lib/ConnectionManager.js` - Sistema de conexão completo
-- `lib/VideoStickerConverter.js` - Vídeos para sticker sem FFmpeg
+- `lib/SmartVideoProcessor.js` - Sistema inteligente para vídeos
+- `lib/RealVideoConverter.js` - Tentativa FFmpeg.wasm (descontinuado)
+- `lib/VideoStickerConverter.js` - Sistema de fallback visual
 - `install-chrome.js` - Instalador automático
 - `clean-session.js` - Limpeza de sessão WhatsApp
+- `test-smart-video.js` - Teste do sistema de vídeo
 - `build-setup.sh` - Script de build
 
 ### **Arquivos atualizados:**
 - `Commands/Search/pinterest.js` ✅ (sem Chrome)
 - `Commands/Search/s.js` ✅ (sem FFmpeg)
-- `Commands/Utilities/s4.js` ✅ (TypeScript → JavaScript + Vídeos sem FFmpeg)
+- `Commands/Utilities/s4.js` ✅ (TS→JS + Sistema Inteligente de Vídeo)
 - `Commands/Search/ss.js` ✅ (fallback adicionado)
 - `lib/HttpConfig.js` ✅ (sistema robusto)
 - `lib/Function.js` ✅ (HTTP otimizado)
@@ -96,7 +104,7 @@
 ## 🎯 **Benefícios:**
 
 ✅ **Pinterest sempre funciona** - Sem dependência do Chrome  
-✅ **Stickers sempre criam** - Vídeos SEM FFmpeg funcionam  
+✅ **Stickers sempre criam** - Sistema inteligente: FFmpeg OU fallback visual  
 ✅ **Zero timeout** - Sistema de retry inteligente  
 ✅ **Auto-instalação** - Chrome/FFmpeg automático  
 ✅ **Performance otimizada** - Cache e timeouts otimizados  
@@ -111,7 +119,7 @@
 
 1. **Pinterest:** `.pinterest solo leveling` 
 2. **Sticker simples:** `.s [responder imagem]`
-3. **Sticker avançado:** `.s4 [responder imagem/vídeo]` ⭐ AGORA COM VÍDEOS!
+3. **Sticker avançado:** `.s4 [responder imagem/vídeo]` ⭐ SISTEMA INTELIGENTE!
 4. **Sticker completo:** `.ss [responder mídia]`
 
 ---
