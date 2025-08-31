@@ -1,4 +1,5 @@
-const https = require('https');
+const { fetchJson } = require('../../lib/HttpConfig');
+const cacheManager = require('../../lib/CacheManager');
 
 module.exports = {
     name: "manga",

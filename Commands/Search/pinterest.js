@@ -1,4 +1,7 @@
 const puppeteer = require("puppeteer");
+const { optimizedAxios, fetchJson, HTTP_CONFIG } = require("../../lib/HttpConfig");
+const koyebOptimizer = require("../../lib/KoyebOptimizer");
+const cacheManager = require("../../lib/CacheManager");
 
 class PinterestImageScraper {
   constructor() {
@@ -193,34 +196,37 @@ class PinterestImageScraper {
       }
     }
 
-    const launchOptions = {
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--disable-gpu",
-        "--memory-pressure-off",
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-        "--disable-features=TranslateUI",
-        "--disable-ipc-flooding-protection",
-        "--disable-background-networking",
-        "--disable-default-apps",
-        "--disable-extensions",
-        "--disable-sync",
-        "--metrics-recording-only",
-        "--no-default-browser-check",
-        "--no-first-run",
-        "--safebrowsing-disable-auto-update",
-        "--disable-client-side-phishing-detection"
-      ],
-      defaultViewport: { width: 1366, height: 768 },
-    };
+    // Usa configuração otimizada para Koyeb
+    const launchOptions = koyebOptimizer.isKoyeb ? 
+      koyebOptimizer.getPuppeteerConfig() : 
+      {
+        headless: true,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-accelerated-2d-canvas",
+          "--no-first-run",
+          "--no-zygote",
+          "--disable-gpu",
+          "--memory-pressure-off",
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-renderer-backgrounding",
+          "--disable-features=TranslateUI",
+          "--disable-ipc-flooding-protection",
+          "--disable-background-networking",
+          "--disable-default-apps",
+          "--disable-extensions",
+          "--disable-sync",
+          "--metrics-recording-only",
+          "--no-default-browser-check",
+          "--no-first-run",
+          "--safebrowsing-disable-auto-update",
+          "--disable-client-side-phishing-detection"
+        ],
+        defaultViewport: { width: 1366, height: 768 },
+      };
 
     // Adiciona executablePath apenas se encontrou
     if (executablePath) {
@@ -307,10 +313,10 @@ class PinterestImageScraper {
       try {
         console.log(`[LOGIN] Tentativa de login ${attempt}/${maxAttempts}`);
         
-        // Navega para página de login com timeout maior
+        // Navega para página de login com timeout otimizado para Koyeb
         await page.goto("https://br.pinterest.com/login/", { 
-          waitUntil: "networkidle2", 
-          timeout: 45000 
+          waitUntil: "networkidle0", 
+          timeout: 25000 
         });
 
         // Aguarda carregamento completo
@@ -355,7 +361,7 @@ class PinterestImageScraper {
         
         // Tenta recarregar a página
         try {
-          await page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
+          await page.reload({ waitUntil: 'networkidle0', timeout: 20000 });
           await this.delay(2000);
         } catch (reloadError) {
           console.error("[LOGIN] Falha ao recarregar página:", reloadError.message);
@@ -383,7 +389,7 @@ class PinterestImageScraper {
 
       for (const selector of cookieSelectors) {
         try {
-          const cookieButton = await page.waitForSelector(selector, { timeout: 3000 });
+          const cookieButton = await page.waitForSelector(selector, { timeout: 5000 });
           if (cookieButton && await cookieButton.isVisible()) {
             await cookieButton.click();
             await this.delay(1500);
@@ -438,7 +444,7 @@ class PinterestImageScraper {
         console.log(`[LOGIN] Testando seletor: ${selector}`);
         
         const element = await page.waitForSelector(selector, { 
-          timeout: 5000,
+          timeout: 8000,
           visible: true 
         });
         

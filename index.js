@@ -1,4 +1,5 @@
 require("./config.js");
+require("./lib/KoyebOptimizer"); // Aplica otimizações para Koyeb
 require("./Core.js");
 
 const pino = require('pino');

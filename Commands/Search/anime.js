@@ -1,4 +1,5 @@
-const fetch = require('node-fetch');
+const { fetchJson } = require('../../lib/HttpConfig');
+const cacheManager = require('../../lib/CacheManager');
 
 module.exports = {
     name: "anime",
@@ -18,12 +19,20 @@ module.exports = {
             
             var AnimesearchTerm = args.join(" ");
             
+            // Verifica cache primeiro
+            const cachedResult = await cacheManager.getCachedApiResult('anime', AnimesearchTerm);
+            if (cachedResult) {
+                console.log(`[ANIME] Cache hit para "${AnimesearchTerm}"`);
+                return Yaka.sendMessage(m.from, cachedResult, { quoted: m });
+            }
+            
             // Função para tentar múltiplas APIs
             const tryMultipleAPIs = async () => {
                 // API 1: Jikan v4
                 try {
-                    const jikanResponse = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(AnimesearchTerm)}&limit=1`);
-                    const jikanData = await jikanResponse.json();
+                    const jikanData = await fetchJson(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(AnimesearchTerm)}&limit=1`, {
+                        timeout: 10000
+                    });
                     if (jikanData && jikanData.data && jikanData.data.length > 0) {
                         return formatJikanResult(jikanData.data[0]);
                     }
@@ -137,16 +146,24 @@ module.exports = {
             // Tentar buscar o anime
             const resultData = await tryMultipleAPIs();
             
+            // Preparar resposta para cache
+            let responseMessage;
             if (resultData.image) {
-                await Yaka.sendMessage(m.from, { 
+                responseMessage = { 
                     image: { url: resultData.image },
                     caption: resultData.details 
-                }, { quoted: m });
+                };
             } else {
-                await Yaka.sendMessage(m.from, { 
+                responseMessage = { 
                     text: resultData.details 
-                }, { quoted: m });
+                };
             }
+            
+            // Salvar no cache
+            await cacheManager.cacheApiResult('anime', AnimesearchTerm, responseMessage, 20 * 60 * 1000); // 20 min
+            
+            // Enviar resposta
+            await Yaka.sendMessage(m.from, responseMessage, { quoted: m });
             
         } catch (error) {
             console.error('Erro na busca de anime:', error);
