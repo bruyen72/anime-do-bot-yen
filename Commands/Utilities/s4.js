@@ -215,11 +215,42 @@ async function handleStickerCommand(sock, msg, sendMessage) {
 
           StickerLogger.success(`Sticker de vídeo criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
 
-          await sock.sendMessage(chatId, {
-            sticker: stickerBuffer
-          }, {
-            quoted: msg
-          });
+          // Retry logic para upload de sticker
+          let uploaded = false;
+          const maxRetries = 3;
+          
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              // Otimizar tamanho se muito grande
+              let finalBuffer = stickerBuffer;
+              if (stickerBuffer.length > 1000000) { // 1MB
+                const sharp = require('sharp');
+                finalBuffer = await sharp(stickerBuffer)
+                  .resize(512, 512, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 }})
+                  .webp({ quality: 60, effort: 1 })
+                  .toBuffer();
+                StickerLogger.info(`Sticker otimizado: ${Math.round(finalBuffer.length/1024)}KB`);
+              }
+              
+              await sock.sendMessage(chatId, {
+                sticker: finalBuffer
+              }, {
+                quoted: msg
+              });
+              
+              uploaded = true;
+              break;
+            } catch (uploadError) {
+              StickerLogger.warn(`Tentativa ${attempt}/${maxRetries} falhou: ${uploadError.message}`);
+              if (attempt < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+              }
+            }
+          }
+          
+          if (!uploaded) {
+            throw new Error('Upload falhou após 3 tentativas');
+          }
 
           StickerLogger.success("🎬 Sticker de vídeo enviado com sucesso!");
           
@@ -231,11 +262,23 @@ async function handleStickerCommand(sock, msg, sendMessage) {
             StickerLogger.info('Usando fallback visual final...');
             const fallbackSticker = await streamVideoProcessor.createVideoInfoSticker(mediaBuffer, videoError.message);
             
-            await sock.sendMessage(chatId, {
-              sticker: fallbackSticker
-            }, {
-              quoted: msg
-            });
+            // Retry logic para fallback também
+            for (let attempt = 1; attempt <= 2; attempt++) {
+              try {
+                await sock.sendMessage(chatId, {
+                  sticker: fallbackSticker
+                }, {
+                  quoted: msg
+                });
+                break;
+              } catch (fallbackError) {
+                if (attempt < 2) {
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                } else {
+                  throw fallbackError;
+                }
+              }
+            }
             
             StickerLogger.warning("Enviado sticker informativo devido ao erro");
           } catch (fallbackError) {
