@@ -74,7 +74,7 @@ const { Boom } = require("@hapi/boom");
 const PhoneNumber = require('awesome-phonenumber');
 const qrcodeTerminal = require('qrcode-terminal');
 const qrcode = require('qrcode');
-const SimpleConnection = require('./lib/SimpleConnection');
+// const SimpleConnection = require('./lib/SimpleConnection');
 const os = require('os');
 const { exec } = require('child_process');
 const util = require('util');
@@ -146,7 +146,9 @@ Commands.prefix = prefix;
 const PORT = process.env.PORT || 3000;
 const app = express();
 let status = 'initializing';
-let simpleConnection = new SimpleConnection();
+let QR_GENERATE = "invalid";
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 8;
 
 // Estruturas de dados
 const cooldowns = new Map();
@@ -485,49 +487,78 @@ async function startYaka() {
         
         setInterval(loadBalancer.checkLoad, 10000);
 
-        // Handler de conexão simplificado
+        // Handler de conexão
         Yaka.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
-            
-            if (qr) {
-                simpleConnection.handleQRCode(qr);
-            }
+            status = connection;
             
             if (connection) {
-                status = connection;
-                simpleConnection.handleConnection(connection);
+                logger.info(`🤖 YakaBot => ${connection}`);
+            }
+
+            if (qr) {
+                console.log('\n══════════════════════════════════════════════════');
+                console.log('         📱 ESCANEIE O QR CODE COM WHATSAPP         ');
+                console.log('══════════════════════════════════════════════════\n');
+                qrcodeTerminal.generate(qr, { small: true });
+                console.log('\n══════════════════════════════════════════════════');
+                console.log('   WHATSAPP > APARELHOS VINCULADOS > VINCULAR APARELHO');
+                console.log('══════════════════════════════════════════════════');
+                QR_GENERATE = qr;
+            }
+
+            if (connection === 'close') {
+                activeConnections.clear();
                 
-                if (connection === 'open') {
-                    activeConnections.clear();
-                    processedMessages.clear();
-                    
-                    setTimeout(() => {
-                        memoryManager.cleanup('normal');
-                        memoryManager.gc();
-                    }, 30000);
+                let statusCode = 0;
+                let reason = "Desconhecido";
+                
+                if (lastDisconnect?.error instanceof Boom) {
+                    statusCode = lastDisconnect.error.output?.statusCode || 0;
+                    reason = lastDisconnect.error.output?.payload?.error || 'Erro desconhecido';
                 }
                 
-                if (connection === 'close') {
-                    let shouldReconnect = true;
-                    
-                    if (lastDisconnect?.error) {
-                        const statusCode = lastDisconnect.error.output?.statusCode;
-                        
-                        // Não reconectar se foi logout
-                        if (statusCode === DisconnectReason.loggedOut) {
-                            console.log('\n🚪 Você foi desconectado do WhatsApp');
-                            console.log('💡 Delete a pasta "baileys-session" e reinicie o bot');
-                            shouldReconnect = false;
-                        }
-                    }
-                    
-                    if (shouldReconnect && simpleConnection.shouldReconnect()) {
-                        setTimeout(() => {
-                            console.log('🔄 Tentando reconectar...');
-                            startYaka();
-                        }, 3000);
-                    }
+                logger.warn(`❌ Conexão fechada: ${reason} (${statusCode})`);
+                memoryManager.gc();
+                
+                if (statusCode === DisconnectReason.loggedOut) {
+                    logger.warn("🚪 Logout detectado. Reinicie manualmente.");
+                    return process.exit(0);
                 }
+                
+                reconnectAttempts++;
+                
+                if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+                    logger.error("❌ Máximo de reconexões atingido");
+                    process.exit(1);
+                }
+                
+                const delay = Math.min(3000 * Math.pow(1.5, reconnectAttempts-1), 30000);
+                
+                logger.info(`🔄 Reconectando em ${Math.round(delay/1000)}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+                setTimeout(startYaka, delay);
+            }
+            
+            if (connection === 'open') {
+                reconnectAttempts = 0;
+                
+                console.log('\n██████████████████████████████████████████████████');
+                console.log('██                                              ██');
+                console.log('██          ✅ YAKABOT CONECTADO!               ██');
+                console.log('██                                              ██');
+                console.log('██      🤖 Bot operacional e funcionando        ██');
+                console.log('██      📱 WhatsApp conectado com sucesso       ██');
+                console.log('██      ⚡ Sistema otimizado ativo              ██');
+                console.log('██                                              ██');
+                console.log('██████████████████████████████████████████████████\n');
+                
+                activeConnections.clear();
+                processedMessages.clear();
+                
+                setTimeout(() => {
+                    memoryManager.cleanup('normal');
+                    memoryManager.gc();
+                }, 30000);
             }
         });
 
@@ -1190,7 +1221,7 @@ async function startYaka() {
                    system: {
                        load: loadBalancer.isHighLoad ? 'Alto' : 'Normal',
                        queueSize: heavyCommandQueue.length,
-                       reconnects: simpleConnection.getReconnectCount(),
+                       reconnects: reconnectAttempts,
                        chrome: 'Ativo via Fly.io'
                    },
                    topCommands,
@@ -1435,17 +1466,12 @@ app.get("/qr", async (req, res) => {
            return res.status(200).json({ message: "Sessão já conectada" });
        }
        
-       const qr = simpleConnection.getQR();
-       if (!qr) {
-           return res.status(404).json({ 
-               error: "QR Code não disponível",
-               status: status,
-               reconnects: simpleConnection.getReconnectCount()
-           });
+       if (!QR_GENERATE || QR_GENERATE === "invalid") {
+           return res.status(404).json({ error: "QR Code não disponível" });
        }
        
        res.setHeader("content-type", "image/png");
-       res.send(await qrcode.toBuffer(qr));
+       res.send(await qrcode.toBuffer(QR_GENERATE));
    } catch (err) {
        logger.error(err, "Erro ao gerar QR");
        res.status(500).json({ error: "Erro interno" });
@@ -1483,7 +1509,7 @@ app.get("/status", (req, res) => {
                load: loadBalancer.isHighLoad ? 'Alto' : 'Normal',
                activeCommands: loadBalancer.commandsPending,
                queueSize: heavyCommandQueue.length,
-               reconnects: simpleConnection.getReconnectCount()
+               reconnects: reconnectAttempts
            },
            timestamp: new Date().toISOString()
        });
