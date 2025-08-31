@@ -147,8 +147,8 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 let status = 'initializing';
 let QR_GENERATE = "invalid";
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 8;
+const AdvancedConnectionManager = require('./lib/AdvancedConnectionManager');
+let connectionManager = new AdvancedConnectionManager(logger);
 
 // Estruturas de dados
 const cooldowns = new Map();
@@ -167,7 +167,7 @@ let COOLDOWN_PERIOD = 2500; // Reduzido para melhor UX
 const GROUP_MESSAGE_LIMIT = 25;
 const GROUP_COOLDOWN_PERIOD = 5000;
 
-console.log('🔌 Sistema de conexão simplificado ativo');
+console.log('🔌 Sistema de conexão avançado ativo - resolve "dispositivo não conectado"');
 
 console.log(`🚀 YakaBot Premium - 8GB RAM + Chrome GUI`);
 console.log(`💾 Memória: ${MAX_MEMORY_MB}MB | Performance: ${PERFORMANCE_MODE}`);
@@ -436,37 +436,8 @@ async function startYaka() {
         const { version, isLatest } = await fetchLatestBaileysVersion();
         logger.info(`📱 Baileys: ${version} | Atualizado: ${isLatest ? 'Sim' : 'Não'}`);
         
-        // Configurações otimizadas para conexão estável
-        const socketConfig = {
-            auth: baileyState,
-            printQRInTerminal: false,
-            logger: pino({ level: 'silent' }),
-            browser: ['YakaBot', 'Desktop', '1.0.0'],
-            version,
-            
-            // Configurações para conexão estável
-            syncFullHistory: false,
-            fireInitQueries: true, // Mudado para true
-            downloadHistory: false,
-            markOnlineOnConnect: false, // Mudado para false
-            generateHighQualityLinkPreview: false,
-            
-            // Timeouts mais conservadores
-            keepAliveIntervalMs: 10000, // Reduzido
-            connectTimeoutMs: 60000, // 1 minuto
-            defaultQueryTimeoutMs: 60000,
-            
-            retryRequestDelayMs: 1000, // Mais conservador
-            maxRetries: 3, // Menos tentativas
-            
-            emitOwnEvents: false,
-            shouldIgnoreJid: jid => jid.endsWith('@broadcast'),
-            
-            // Configurações de cache reduzidas
-            options: {
-                maxCachedMessages: 5
-            }
-        };
+        // Usar configurações otimizadas do AdvancedConnectionManager
+        const socketConfig = connectionManager.getOptimizedSocketConfig(baileyState, version);
 
         const Yaka = makeWASocket(socketConfig);
         global.YakaBot = Yaka;
@@ -490,108 +461,24 @@ async function startYaka() {
         
         setInterval(loadBalancer.checkLoad, 10000);
 
-        // Handler de conexão
+        // Handler de conexão usando AdvancedConnectionManager
         Yaka.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update;
-            status = connection;
-            
+            const { connection } = update;
             if (connection) {
-                logger.info(`🤖 YakaBot => ${connection}`);
-            }
-
-            if (qr) {
-                console.clear();
-                console.log('\n🚀 YakaBot - Conecte seu WhatsApp\n');
-                console.log('══════════════════════════════════════════════════');
-                console.log('         📱 ESCANEIE O QR CODE COM WHATSAPP         ');
-                console.log('══════════════════════════════════════════════════\n');
-                
-                try {
-                    qrcodeTerminal.generate(qr, { small: true });
-                } catch (e) {
-                    console.log('❌ Erro ao gerar QR no terminal');
-                }
-                
-                console.log('\n══════════════════════════════════════════════════');
-                console.log('📋 INSTRUÇÕES:');
-                console.log('1. Abra o WhatsApp no seu celular');
-                console.log('2. Vá em Menu > Aparelhos conectados');
-                console.log('3. Toque em "Conectar um aparelho"');
-                console.log('4. Escaneie o QR code acima');
-                console.log('══════════════════════════════════════════════════');
-                console.log(`🌐 QR também disponível em: http://localhost:${PORT}/qr?session=default`);
-                console.log('══════════════════════════════════════════════════');
-                
-                QR_GENERATE = qr;
-            }
-
-            if (connection === 'close') {
-                activeConnections.clear();
-                
-                let statusCode = 0;
-                let reason = "Desconhecido";
-                
-                if (lastDisconnect?.error instanceof Boom) {
-                    statusCode = lastDisconnect.error.output?.statusCode || 0;
-                    reason = lastDisconnect.error.output?.payload?.error || 'Erro desconhecido';
-                }
-                
-                console.log(`\n❌ Conexão perdida: ${reason} (Código: ${statusCode})`);
-                
-                // Tratar diferentes tipos de desconexão
-                if (statusCode === DisconnectReason.badSession) {
-                    console.log('🔧 Sessão inválida detectada. Limpando sessão...');
-                    try {
-                        require('fs').rmSync('./baileys-session', { recursive: true, force: true });
-                        console.log('✅ Sessão limpa. Reiniciando...');
-                    } catch (e) {}
-                    setTimeout(startYaka, 2000);
-                    return;
-                }
-                
-                if (statusCode === DisconnectReason.loggedOut) {
-                    console.log('🚪 Você foi deslogado do WhatsApp.');
-                    console.log('💡 Delete a pasta "baileys-session" e reinicie o bot.');
-                    return;
-                }
-                
-                if (statusCode === DisconnectReason.connectionLost) {
-                    console.log('📡 Conexão com WhatsApp perdida. Tentando reconectar...');
-                } else if (statusCode === DisconnectReason.connectionClosed) {
-                    console.log('🔌 Conexão fechada pelo servidor. Reconectando...');
-                } else if (statusCode === DisconnectReason.restartRequired) {
-                    console.log('🔄 Reinicialização necessária...');
-                } else {
-                    console.log('⚠️ Erro de conexão. Tentando reconectar...');
-                }
-                
-                reconnectAttempts++;
-                
-                if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
-                    console.log('❌ Muitas tentativas de reconexão falharam.');
-                    console.log('💡 Limpe a pasta "baileys-session" e reinicie o bot.');
-                    return;
-                }
-                
-                const delay = Math.min(3000 * reconnectAttempts, 15000);
-                
-                console.log(`🔄 Tentativa ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} em ${Math.round(delay/1000)}s...`);
-                setTimeout(startYaka, delay);
+                status = connection;
             }
             
+            // Usar o gerenciador avançado para tratar conexão
+            await connectionManager.handleConnectionUpdate(update, startYaka);
+            
+            // Atualizar QR_GENERATE para compatibilidade com rotas web
+            const currentQR = connectionManager.getCurrentQR();
+            if (currentQR) {
+                QR_GENERATE = currentQR;
+            }
+            
+            // Limpeza quando conecta
             if (connection === 'open') {
-                reconnectAttempts = 0;
-                
-                console.log('\n██████████████████████████████████████████████████');
-                console.log('██                                              ██');
-                console.log('██          ✅ YAKABOT CONECTADO!               ██');
-                console.log('██                                              ██');
-                console.log('██      🤖 Bot operacional e funcionando        ██');
-                console.log('██      📱 WhatsApp conectado com sucesso       ██');
-                console.log('██      ⚡ Sistema otimizado ativo              ██');
-                console.log('██                                              ██');
-                console.log('██████████████████████████████████████████████████\n');
-                
                 activeConnections.clear();
                 processedMessages.clear();
                 
@@ -1261,7 +1148,7 @@ async function startYaka() {
                    system: {
                        load: loadBalancer.isHighLoad ? 'Alto' : 'Normal',
                        queueSize: heavyCommandQueue.length,
-                       reconnects: reconnectAttempts,
+                       reconnects: connectionManager.getConnectionStatus().reconnectAttempts,
                        chrome: 'Ativo via Fly.io'
                    },
                    topCommands,
@@ -1549,7 +1436,7 @@ app.get("/status", (req, res) => {
                load: loadBalancer.isHighLoad ? 'Alto' : 'Normal',
                activeCommands: loadBalancer.commandsPending,
                queueSize: heavyCommandQueue.length,
-               reconnects: reconnectAttempts
+               reconnects: connectionManager.getConnectionStatus().reconnectAttempts
            },
            timestamp: new Date().toISOString()
        });
