@@ -1233,7 +1233,66 @@ module.exports = {
   usage: "pin <termo> | pin <termo>#<1-10> | .pinterest <termo customizado>#<1-10>",
   react: "🖼️",
   start: async (Yaka, m, { args, body, prefix }) => {
-    await pinterestScraper.handlePinterestCommand(Yaka, m, { args, body, prefix });
+    // Sistema de fallback inteligente
+    const smartPinterest = require('../../lib/SmartPinterestFetcher');
+    
+    try {
+      if (!args[0]) {
+        return Yaka.sendMessage(m.from, { 
+          text: "❌ Uso: .pinterest <termo de busca>\nExemplo: .pinterest solo leveling" 
+        }, { quoted: m });
+      }
+
+      const searchTerm = args.join(" ");
+      const count = 5; // Número padrão de imagens
+      
+      console.log(`[Pinterest] Iniciando busca: "${searchTerm}"`);
+      
+      const loadingMsg = await Yaka.sendMessage(m.from, { 
+        text: "🔍 Buscando imagens no Pinterest..." 
+      }, { quoted: m });
+      
+      // Primeiro tenta o sistema original
+      try {
+        await pinterestScraper.handlePinterestCommand(Yaka, m, { args, body, prefix });
+        await Yaka.sendMessage(m.from, { delete: loadingMsg.key });
+        return;
+      } catch (puppeteerError) {
+        console.log("[Pinterest] Sistema original falhou, usando fallback:", puppeteerError.message);
+      }
+      
+      // Fallback para sistema inteligente
+      const images = await smartPinterest.searchImages(searchTerm, count);
+      
+      if (images && images.length > 0) {
+        await Yaka.sendMessage(m.from, { delete: loadingMsg.key });
+        
+        for (let i = 0; i < Math.min(images.length, count); i++) {
+          try {
+            await Yaka.sendMessage(m.from, { 
+              image: { url: images[i] },
+              caption: `🖼️ Pinterest: "${searchTerm}" (${i + 1}/${images.length})`
+            }, { quoted: m });
+            
+            // Pequeno delay entre imagens
+            if (i < images.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          } catch (imageError) {
+            console.log(`[Pinterest] Erro ao enviar imagem ${i + 1}:`, imageError.message);
+            continue;
+          }
+        }
+      } else {
+        throw new Error("Nenhuma imagem encontrada");
+      }
+      
+    } catch (error) {
+      console.error('[Pinterest] Erro completo:', error.message);
+      await Yaka.sendMessage(m.from, { 
+        text: `❌ Erro ao buscar imagens: ${error.message}\n\nTente:\n• Outro termo de busca\n• Aguarde um momento e tente novamente` 
+      }, { quoted: m });
+    }
   },
   
   // Método adicional para estatísticas (opcional)

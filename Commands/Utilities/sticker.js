@@ -6,6 +6,7 @@ const { promisify } = require('util');
 const execPromise = promisify(exec);
 const fileType = require('file-type');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+const smartStickerConverter = require('../../lib/SmartStickerConverter');
 
 // ==================== CONFIGURAÇÕES ULTRA INTELIGENTES - RESOLVE TODOS OS ERROS ====================
 const MAX_STICKER_SIZE = 512;
@@ -451,6 +452,10 @@ module.exports = {
                     console.log(`[🚨] Emergência: MANTÉM PROPORÇÃO ORIGINAL - ZERO CORTE`);
 
                     await execPromise(emergencyCmd, { timeout: TIMEOUT_FFMPEG });
+
+                    if (!fs.existsSync(outputWebp) || fs.statSync(outputWebp).size === 0) {
+                        throw new Error("Emergência FFmpeg falhou");
+                    }
                     
                     if (fs.existsSync(outputWebp) && fs.statSync(outputWebp).size > 0) {
                         const webpBuffer = fs.readFileSync(outputWebp);
@@ -472,7 +477,36 @@ module.exports = {
                     }
                 } catch (emergencyErr) {
                     console.error("[❌] Emergência falhou:", emergencyErr.message);
-                    await m.reply("❌ Arquivo muito complexo ou corrompido. Tente com outro vídeo menor.");
+                    
+                    // FALLBACK FINAL: SmartStickerConverter (sem FFmpeg)
+                    console.log(`[🔧] Tentando conversão sem FFmpeg...`);
+                    try {
+                        const originalBuffer = fs.readFileSync(tempFile);
+                        const stickerBuffer = await smartStickerConverter.createSticker(originalBuffer, {
+                            quality: 60,
+                            width: 512,
+                            height: 512
+                        });
+                        
+                        const fallbackSizeKB = stickerBuffer.length / 1024;
+                        console.log(`[✅] Conversão sem FFmpeg OK! ${fallbackSizeKB.toFixed(1)}KB`);
+                        
+                        await Yaka.sendMessage(
+                            m.from || m.chat,
+                            { sticker: stickerBuffer },
+                            { quoted: m }
+                        );
+                        
+                        console.log(`[✅] Enviado via fallback Sharp!`);
+                        await removeProcessingMsg();
+                        cleanupFiles();
+                        return;
+                        
+                    } catch (fallbackErr) {
+                        console.error("[❌] Fallback Sharp falhou:", fallbackErr.message);
+                    }
+                    
+                    await m.reply("❌ FFmpeg não encontrado. Tente outro arquivo ou contate o suporte.");
                     await removeProcessingMsg();
                     cleanupFiles();
                 }
