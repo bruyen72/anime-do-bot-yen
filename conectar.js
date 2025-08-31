@@ -1,5 +1,6 @@
 const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const pino = require('pino');
+const https = require('https');
 const fs = require('fs');
 const qrcode = require('qrcode-terminal');
 
@@ -19,13 +20,19 @@ async function startConnection() {
         level: 'fatal'
     });
 
+    // Agente HTTPS para ignorar problemas de certificado (solução para 'Media upload failed')
+    const agent = new https.Agent({
+        rejectUnauthorized: false
+    });
+
     // Criar conexão
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
         logger,
         browser: ['YakaBot', 'Chrome', '116.0.0.0'],
-        syncFullHistory: false
+        syncFullHistory: false,
+        agent: agent // Adiciona o agente HTTPS
     });
 
     // Manipular eventos de conexão
