@@ -110,6 +110,9 @@ async function handleStickerCommand(sock, msg, sendMessage) {
   let tempImagePath = null;
 
   try {
+    // Força a inicialização do processador de vídeo para garantir que o FFmpeg seja detectado
+    await streamVideoProcessor.init();
+    
     const chatId = msg.key.remoteJid;
 
     // Detecta mídia quotada (incluindo view once)

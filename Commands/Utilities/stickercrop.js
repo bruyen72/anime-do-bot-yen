@@ -45,7 +45,8 @@ module.exports = {
                 }
                 
                 let mediaMess = await quoted.download();
-                
+                const ffmpeg = require('ffmpeg-static');
+
                 let stickerMess = new Sticker(mediaMess, {
                     pack: 'Cropped Stickers',
                     author: pushName || 'Bot User',
@@ -53,7 +54,8 @@ module.exports = {
                     categories: ['🤩', '🎉'],
                     id: '12345',
                     quality: 70,
-                    background: 'transparent'
+                    background: 'transparent',
+                    ffmpeg: ffmpeg // Adiciona o caminho do FFmpeg
                 });
                 
                 const stickerBuffer2 = await stickerMess.toBuffer();
@@ -68,7 +70,7 @@ module.exports = {
             }
         } catch (error) {
             console.error('Error in stickercrop:', error);
-            m.reply('An error occurred while creating the cropped sticker!');
+            m.reply(`❌ Ocorreu um erro!\n\nErro: ${error.message}\n\nSe estiver tentando converter um vídeo, verifique se o formato é válido e não está corrompido. O bot pode estar com dificuldades para processá-lo.`);
         }
     }
 };
