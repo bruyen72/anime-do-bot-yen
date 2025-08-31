@@ -3,6 +3,7 @@ const { writeFile, unlink, access, stat } = require('fs/promises');
 const { tmpdir } = require('os');
 const { join } = require('path');
 const smartStickerConverter = require('../../lib/SmartStickerConverter');
+const videoStickerConverter = require('../../lib/VideoStickerConverter');
 
 // Logger colorido para stickers
 class StickerLogger {
@@ -157,8 +158,37 @@ async function handleStickerCommand(sock, msg, sendMessage) {
       StickerLogger.success(`Download concluído: ${mediaBuffer.length} bytes`);
 
       if (isVideo) {
-        // Para vídeos, só funciona se tiver FFmpeg - senão usa fallback
-        await sendMessage(chatId, '*[⚠️]* Vídeos precisam de FFmpeg. Use .s para imagens!');
+        // Para vídeos, usar o novo sistema sem FFmpeg
+        StickerLogger.process('Convertendo vídeo para sticker sem FFmpeg...');
+        
+        try {
+          // Verificar se pode processar o vídeo
+          const canProcess = await videoStickerConverter.canProcessVideo(mediaBuffer);
+          StickerLogger.info(`Vídeo processável: ${canProcess ? 'Sim' : 'Não (usando fallback)'}`);
+          
+          const stickerBuffer = await videoStickerConverter.convertVideoToSticker(mediaBuffer, {
+            quality: 80,
+            width: 512,
+            height: 512
+          });
+
+          StickerLogger.success(`Sticker de vídeo criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
+
+          await sock.sendMessage(chatId, {
+            sticker: stickerBuffer
+          }, {
+            quoted: msg
+          });
+
+          StickerLogger.success("Sticker de vídeo enviado com sucesso!");
+          
+          // Limpeza periódica
+          setTimeout(() => videoStickerConverter.cleanup(), 5000);
+          
+        } catch (videoError) {
+          StickerLogger.error(`Erro no vídeo: ${videoError.message}`);
+          await sendMessage(chatId, '*[⚠️]* Erro ao processar vídeo. Tente com uma imagem ou use .ss!');
+        }
         return;
       } else {
         // Para imagens, usa SmartStickerConverter
@@ -213,7 +243,7 @@ async function handleStickerCommand(sock, msg, sendMessage) {
 module.exports = {
   name: "s4",
   alias: ["sticker4", "fig4"],
-  desc: "Converte imagem/vídeo para sticker (incluindo view once) - Versão avançada JS",
+  desc: "Converte imagem/vídeo para sticker SEM FFmpeg (incluindo view once) - Sistema inteligente",
   category: "Utilities",
   usage: ".s4 [responda uma imagem ou vídeo]",
   react: "🎨",

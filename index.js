@@ -436,32 +436,35 @@ async function startYaka() {
         const { version, isLatest } = await fetchLatestBaileysVersion();
         logger.info(`📱 Baileys: ${version} | Atualizado: ${isLatest ? 'Sim' : 'Não'}`);
         
-        // Configurações premium para 8GB
+        // Configurações otimizadas para conexão estável
         const socketConfig = {
             auth: baileyState,
             printQRInTerminal: false,
             logger: pino({ level: 'silent' }),
-            browser: ['YakaBot Premium', 'Chrome', '120.0.0.0'],
+            browser: ['YakaBot', 'Desktop', '1.0.0'],
             version,
             
+            // Configurações para conexão estável
             syncFullHistory: false,
-            fireInitQueries: false,
+            fireInitQueries: true, // Mudado para true
             downloadHistory: false,
-            markOnlineOnConnect: true,
+            markOnlineOnConnect: false, // Mudado para false
+            generateHighQualityLinkPreview: false,
             
-            // Otimizado para 8GB + 4 CPUs
-            keepAliveIntervalMs: 30000,
-            connectTimeoutMs: 120000, // 2 minutos
+            // Timeouts mais conservadores
+            keepAliveIntervalMs: 10000, // Reduzido
+            connectTimeoutMs: 60000, // 1 minuto
             defaultQueryTimeoutMs: 60000,
             
-            retryRequestDelayMs: 500, // Mais rápido com 8GB
-            maxRetries: 6, // Mais tentativas
+            retryRequestDelayMs: 1000, // Mais conservador
+            maxRetries: 3, // Menos tentativas
             
             emitOwnEvents: false,
             shouldIgnoreJid: jid => jid.endsWith('@broadcast'),
             
+            // Configurações de cache reduzidas
             options: {
-                maxCachedMessages: 15 // Aumentado para 8GB
+                maxCachedMessages: 5
             }
         };
 
@@ -497,13 +500,28 @@ async function startYaka() {
             }
 
             if (qr) {
-                console.log('\n══════════════════════════════════════════════════');
+                console.clear();
+                console.log('\n🚀 YakaBot - Conecte seu WhatsApp\n');
+                console.log('══════════════════════════════════════════════════');
                 console.log('         📱 ESCANEIE O QR CODE COM WHATSAPP         ');
                 console.log('══════════════════════════════════════════════════\n');
-                qrcodeTerminal.generate(qr, { small: true });
+                
+                try {
+                    qrcodeTerminal.generate(qr, { small: true });
+                } catch (e) {
+                    console.log('❌ Erro ao gerar QR no terminal');
+                }
+                
                 console.log('\n══════════════════════════════════════════════════');
-                console.log('   WHATSAPP > APARELHOS VINCULADOS > VINCULAR APARELHO');
+                console.log('📋 INSTRUÇÕES:');
+                console.log('1. Abra o WhatsApp no seu celular');
+                console.log('2. Vá em Menu > Aparelhos conectados');
+                console.log('3. Toque em "Conectar um aparelho"');
+                console.log('4. Escaneie o QR code acima');
                 console.log('══════════════════════════════════════════════════');
+                console.log(`🌐 QR também disponível em: http://localhost:${PORT}/qr?session=default`);
+                console.log('══════════════════════════════════════════════════');
+                
                 QR_GENERATE = qr;
             }
 
@@ -518,24 +536,46 @@ async function startYaka() {
                     reason = lastDisconnect.error.output?.payload?.error || 'Erro desconhecido';
                 }
                 
-                logger.warn(`❌ Conexão fechada: ${reason} (${statusCode})`);
-                memoryManager.gc();
+                console.log(`\n❌ Conexão perdida: ${reason} (Código: ${statusCode})`);
+                
+                // Tratar diferentes tipos de desconexão
+                if (statusCode === DisconnectReason.badSession) {
+                    console.log('🔧 Sessão inválida detectada. Limpando sessão...');
+                    try {
+                        require('fs').rmSync('./baileys-session', { recursive: true, force: true });
+                        console.log('✅ Sessão limpa. Reiniciando...');
+                    } catch (e) {}
+                    setTimeout(startYaka, 2000);
+                    return;
+                }
                 
                 if (statusCode === DisconnectReason.loggedOut) {
-                    logger.warn("🚪 Logout detectado. Reinicie manualmente.");
-                    return process.exit(0);
+                    console.log('🚪 Você foi deslogado do WhatsApp.');
+                    console.log('💡 Delete a pasta "baileys-session" e reinicie o bot.');
+                    return;
+                }
+                
+                if (statusCode === DisconnectReason.connectionLost) {
+                    console.log('📡 Conexão com WhatsApp perdida. Tentando reconectar...');
+                } else if (statusCode === DisconnectReason.connectionClosed) {
+                    console.log('🔌 Conexão fechada pelo servidor. Reconectando...');
+                } else if (statusCode === DisconnectReason.restartRequired) {
+                    console.log('🔄 Reinicialização necessária...');
+                } else {
+                    console.log('⚠️ Erro de conexão. Tentando reconectar...');
                 }
                 
                 reconnectAttempts++;
                 
                 if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
-                    logger.error("❌ Máximo de reconexões atingido");
-                    process.exit(1);
+                    console.log('❌ Muitas tentativas de reconexão falharam.');
+                    console.log('💡 Limpe a pasta "baileys-session" e reinicie o bot.');
+                    return;
                 }
                 
-                const delay = Math.min(3000 * Math.pow(1.5, reconnectAttempts-1), 30000);
+                const delay = Math.min(3000 * reconnectAttempts, 15000);
                 
-                logger.info(`🔄 Reconectando em ${Math.round(delay/1000)}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+                console.log(`🔄 Tentativa ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} em ${Math.round(delay/1000)}s...`);
                 setTimeout(startYaka, delay);
             }
             

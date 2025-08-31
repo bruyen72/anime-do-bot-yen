@@ -15,9 +15,11 @@
 - **Solução:** Sistema com múltiplos fallbacks:
   1. FFmpeg (se disponível)
   2. SmartStickerConverter usando Sharp
-  3. Jimp como backup
-  4. Conversão básica para imagens pequenas
+  3. VideoStickerConverter para vídeos sem FFmpeg
+  4. Jimp como backup
+  5. Sticker informativo para vídeos
 - **Suporte:** Imagens, vídeos, view once messages
+- **Novo:** s4.js agora processa vídeos SEM FFmpeg!
 
 ### 🔧 **Sistema de instalação automática**
 - **Arquivo:** `install-chrome.js` (novo)
@@ -67,13 +69,15 @@
 - `lib/SimpleConnection.js` - QR Code e conexão estáveis
 - `lib/QRManager.js` - Gerenciador de QR avançado
 - `lib/ConnectionManager.js` - Sistema de conexão completo
+- `lib/VideoStickerConverter.js` - Vídeos para sticker sem FFmpeg
 - `install-chrome.js` - Instalador automático
+- `clean-session.js` - Limpeza de sessão WhatsApp
 - `build-setup.sh` - Script de build
 
 ### **Arquivos atualizados:**
 - `Commands/Search/pinterest.js` ✅ (sem Chrome)
 - `Commands/Search/s.js` ✅ (sem FFmpeg)
-- `Commands/Utilities/s4.js` ✅ (TypeScript → JavaScript)
+- `Commands/Utilities/s4.js` ✅ (TypeScript → JavaScript + Vídeos sem FFmpeg)
 - `Commands/Search/ss.js` ✅ (fallback adicionado)
 - `lib/HttpConfig.js` ✅ (sistema robusto)
 - `lib/Function.js` ✅ (HTTP otimizado)
@@ -92,7 +96,7 @@
 ## 🎯 **Benefícios:**
 
 ✅ **Pinterest sempre funciona** - Sem dependência do Chrome  
-✅ **Stickers sempre criam** - Múltiplos fallbacks  
+✅ **Stickers sempre criam** - Vídeos SEM FFmpeg funcionam  
 ✅ **Zero timeout** - Sistema de retry inteligente  
 ✅ **Auto-instalação** - Chrome/FFmpeg automático  
 ✅ **Performance otimizada** - Cache e timeouts otimizados  
@@ -107,7 +111,7 @@
 
 1. **Pinterest:** `.pinterest solo leveling` 
 2. **Sticker simples:** `.s [responder imagem]`
-3. **Sticker avançado:** `.s4 [responder imagem/vídeo]`
+3. **Sticker avançado:** `.s4 [responder imagem/vídeo]` ⭐ AGORA COM VÍDEOS!
 4. **Sticker completo:** `.ss [responder mídia]`
 
 ---
