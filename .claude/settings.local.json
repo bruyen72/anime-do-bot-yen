@@ -5,7 +5,9 @@
       "Bash(chmod:*)",
       "Bash(node:*)",
       "WebSearch",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npm run start:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

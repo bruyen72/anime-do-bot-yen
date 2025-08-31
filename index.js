@@ -161,6 +161,38 @@ let isProcessingHeavyCommand = false;
 const activeConnections = new Set();
 const commandBlacklist = new Set();
 
+// Sistema de monitoramento de erros em tempo real
+const errorTracker = {
+    errors: [],
+    maxErrors: 100,
+    
+    addError: (error, context = {}) => {
+        const errorEntry = {
+            timestamp: new Date().toISOString(),
+            message: error.message,
+            stack: error.stack?.slice(0, 300),
+            context,
+            id: Date.now().toString(36)
+        };
+        
+        errorTracker.errors.unshift(errorEntry);
+        if (errorTracker.errors.length > errorTracker.maxErrors) {
+            errorTracker.errors.pop();
+        }
+        
+        console.log(`🚨 ERRO REGISTRADO [${errorEntry.id}]: ${error.message}`);
+    },
+    
+    getRecentErrors: (limit = 10) => {
+        return errorTracker.errors.slice(0, limit);
+    },
+    
+    clearErrors: () => {
+        errorTracker.errors = [];
+        console.log('🧹 Histórico de erros limpo');
+    }
+};
+
 // Rate limiting
 let MESSAGE_LIMIT = 8; // Aumentado para 8GB RAM
 let COOLDOWN_PERIOD = 2500; // Reduzido para melhor UX
@@ -1243,7 +1275,8 @@ app.use(apiRateLimiter);
 
 // Rota principal - ESSENCIAL PARA FLY.IO
 app.get("/", (req, res) => {
-   const memUsage = memoryManager.getMemoryUsage();
+   try {
+       const memUsage = memoryManager.getMemoryUsage();
    
    res.send(`
 <!DOCTYPE html>
@@ -1375,6 +1408,14 @@ app.get("/", (req, res) => {
 </body>
 </html>
    `);
+   } catch (error) {
+       errorTracker.addError(error, { route: '/' });
+       res.status(500).json({
+           error: "Erro ao carregar página principal",
+           message: error.message,
+           timestamp: new Date().toISOString()
+       });
+   }
 });
 
 // QR Code
@@ -1845,12 +1886,96 @@ if (process.env.NODE_ENV !== 'production') {
    });
 }
 
-// Middleware de erro global
+// Rota para monitoramento de erros em tempo real
+app.get("/errors", (req, res) => {
+   try {
+       const { token, limit } = req.query;
+       if (token !== (global.adminToken || 'yaka_debug')) {
+           return res.status(403).json({ error: "Acesso negado" });
+       }
+       
+       const recentErrors = errorTracker.getRecentErrors(parseInt(limit) || 10);
+       
+       res.json({
+           total_errors: errorTracker.errors.length,
+           recent_errors: recentErrors,
+           last_error: recentErrors[0] || null,
+           timestamp: new Date().toISOString(),
+           memory_usage: memoryManager.getMemoryUsage(),
+           system_status: {
+               uptime: formatUptime(process.uptime()),
+               connections: activeConnections.size,
+               pending_commands: heavyCommandQueue.length
+           }
+       });
+   } catch (error) {
+       errorTracker.addError(error, { route: '/errors' });
+       res.status(500).json({ 
+           error: "Erro ao obter histórico de erros",
+           message: error.message 
+       });
+   }
+});
+
+// Rota para limpeza de erros
+app.post("/clear-errors", (req, res) => {
+   try {
+       const { token } = req.query;
+       if (token !== (global.adminToken || 'yaka_debug')) {
+           return res.status(403).json({ error: "Acesso negado" });
+       }
+       
+       const clearedCount = errorTracker.errors.length;
+       errorTracker.clearErrors();
+       
+       res.json({
+           message: `${clearedCount} erros limpos com sucesso`,
+           timestamp: new Date().toISOString()
+       });
+   } catch (error) {
+       res.status(500).json({ 
+           error: "Erro ao limpar histórico",
+           message: error.message 
+       });
+   }
+});
+
+// Middleware de erro global aprimorado
 app.use((err, req, res, next) => {
-   logger.error(err, "Erro no Express");
+   // Registrar erro no sistema de monitoramento
+   errorTracker.addError(err, {
+       url: req.url,
+       method: req.method,
+       ip: req.ip,
+       userAgent: req.get('User-Agent'),
+       body: req.body
+   });
+   
+   // Log detalhado do erro
+   logger.error({
+       error: err.message,
+       stack: err.stack,
+       url: req.url,
+       method: req.method,
+       ip: req.ip,
+       userAgent: req.get('User-Agent')
+   }, "Erro no Express detectado");
+   
+   console.log(`❌ ERRO INTERNO DO SERVIDOR:
+   📍 URL: ${req.method} ${req.url}
+   🔍 Erro: ${err.message}
+   🌐 IP: ${req.ip}
+   🕒 Timestamp: ${new Date().toISOString()}
+   📋 Stack: ${err.stack?.slice(0, 200)}...`);
+   
+   // Resposta mais informativa em desenvolvimento
+   const isDev = process.env.NODE_ENV !== 'production';
+   
    res.status(500).json({ 
        error: "Erro interno do servidor",
-       timestamp: new Date().toISOString()
+       message: isDev ? err.message : "Erro processando solicitação",
+       timestamp: new Date().toISOString(),
+       requestId: Date.now().toString(36) + Math.random().toString(36).substr(2)
    });
 });
 
@@ -1858,7 +1983,7 @@ app.use((err, req, res, next) => {
 app.use((req, res) => {
    res.status(404).json({ 
        error: "Rota não encontrada",
-       available_routes: ["/", "/status", "/qr", "/stats", "/health", "/logs"],
+       available_routes: ["/", "/status", "/qr", "/stats", "/health", "/logs", "/errors?token=yaka_debug", "/clear-errors?token=yaka_debug"],
        chrome_gui: "Acesse porta 8080 para Chrome GUI"
    });
 });
