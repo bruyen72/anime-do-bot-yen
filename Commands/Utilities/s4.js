@@ -241,7 +241,7 @@ async function handleStickerCommand(sock, msg, sendMessage) {
               uploaded = true;
               break;
             } catch (uploadError) {
-              StickerLogger.warn(`Tentativa ${attempt}/${maxRetries} falhou: ${uploadError.message}`);
+              StickerLogger.error(`Tentativa ${attempt}/${maxRetries} falhou: ${uploadError.message}`);
               if (attempt < maxRetries) {
                 await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
               }
@@ -280,7 +280,7 @@ async function handleStickerCommand(sock, msg, sendMessage) {
               }
             }
             
-            StickerLogger.warning("Enviado sticker informativo devido ao erro");
+            StickerLogger.error("Enviado sticker informativo devido ao erro");
           } catch (fallbackError) {
             await sendMessage(chatId, `*[❌]* Falha completa: ${videoError.message}`);
           }
