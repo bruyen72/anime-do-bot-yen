@@ -10,21 +10,25 @@
   3. Imagens de fallback categorizadas
 - **Cache:** 20 minutos para performance
 
-### 🖼️ **Sistema de Sticker Inteligente**
-- **Arquivos:** `Commands/Search/s.js`, `Commands/Utilities/s4.js` (TS→JS)
-- **Nova Tecnologia:** SmartVideoProcessor com detecção automática
-- **Sistema Híbrido:**
-  1. **FFmpeg-static** (quando disponível) - Extrai frames reais
-  2. **FFmpeg do sistema** (fallback secundário)
-  3. **Stickers informativos** (quando FFmpeg não disponível)
-  4. **SmartStickerConverter** para imagens
-  5. **Sharp + Jimp** como backups
-- **Recursos Avançados:**
-  - Detecção automática de FFmpeg
-  - Placeholders bonitos com gradiente
-  - Suporte a view once messages
-  - Limpeza automática de arquivos
-- **Resultado:** s4.js funciona SEMPRE, com ou sem FFmpeg!
+### 🖼️ **Sistema de Vídeo Streaming Avançado**
+- **Arquivos:** `Commands/Utilities/s4.js` (TS→JS + Streaming)
+- **Tecnologia Revolucionária:** StreamVideoProcessor
+- **FFmpeg Streaming Pipeline:**
+  1. **stdin/stdout pipes** - ZERO arquivos temporários
+  2. **Buffer direto** - Vídeo → FFmpeg → PNG → WebP
+  3. **Detecção automática** de formato (MP4, WebM, AVI)
+  4. **Configurações tolerantes** para vídeos corrompidos
+  5. **Fallback visual** com gradientes modernos
+- **Comando Real Executado:**
+  ```bash
+  ffmpeg -analyzeduration 10M -probesize 10M -fflags +discardcorrupt -i pipe:0 -ss 00:00:02 -frames:v 1 -an -vf scale=512:512 -f image2pipe -vcodec png pipe:1
+  ```
+- **Recursos Únicos:**
+  - 🚀 Streaming completo sem I/O de disco
+  - 📡 Pipeline stdin → stdout otimizado
+  - 🎯 Extração de frames em posição específica  
+  - 🔧 Configurações para vídeos do WhatsApp
+- **Resultado:** s4.js extrai frames REAIS de vídeos!
 
 ### 🔧 **Sistema de instalação automática**
 - **Arquivo:** `install-chrome.js` (novo)
@@ -74,18 +78,18 @@
 - `lib/SimpleConnection.js` - QR Code e conexão estáveis
 - `lib/QRManager.js` - Gerenciador de QR avançado
 - `lib/ConnectionManager.js` - Sistema de conexão completo
-- `lib/SmartVideoProcessor.js` - Sistema inteligente para vídeos
-- `lib/RealVideoConverter.js` - Tentativa FFmpeg.wasm (descontinuado)
-- `lib/VideoStickerConverter.js` - Sistema de fallback visual
+- `lib/StreamVideoProcessor.js` - FFmpeg Streaming (stdin/stdout)
+- `lib/SmartVideoProcessor.js` - Sistema anterior (descontinuado)
+- `lib/VideoStickerConverter.js` - Sistema de fallback visual  
 - `install-chrome.js` - Instalador automático
 - `clean-session.js` - Limpeza de sessão WhatsApp
-- `test-smart-video.js` - Teste do sistema de vídeo
+- `test-stream-video.js` - Teste do sistema de streaming
 - `build-setup.sh` - Script de build
 
 ### **Arquivos atualizados:**
 - `Commands/Search/pinterest.js` ✅ (sem Chrome)
 - `Commands/Search/s.js` ✅ (sem FFmpeg)
-- `Commands/Utilities/s4.js` ✅ (TS→JS + Sistema Inteligente de Vídeo)
+- `Commands/Utilities/s4.js` ✅ (TS→JS + FFmpeg Streaming Pipeline)
 - `Commands/Search/ss.js` ✅ (fallback adicionado)
 - `lib/HttpConfig.js` ✅ (sistema robusto)
 - `lib/Function.js` ✅ (HTTP otimizado)
@@ -104,7 +108,7 @@
 ## 🎯 **Benefícios:**
 
 ✅ **Pinterest sempre funciona** - Sem dependência do Chrome  
-✅ **Stickers sempre criam** - Sistema inteligente: FFmpeg OU fallback visual  
+✅ **Vídeos viram stickers REAIS** - FFmpeg streaming extrai frames de verdade  
 ✅ **Zero timeout** - Sistema de retry inteligente  
 ✅ **Auto-instalação** - Chrome/FFmpeg automático  
 ✅ **Performance otimizada** - Cache e timeouts otimizados  
@@ -119,7 +123,7 @@
 
 1. **Pinterest:** `.pinterest solo leveling` 
 2. **Sticker simples:** `.s [responder imagem]`
-3. **Sticker avançado:** `.s4 [responder imagem/vídeo]` ⭐ SISTEMA INTELIGENTE!
+3. **Sticker avançado:** `.s4 [responder imagem/vídeo]` ⭐ FRAMES REAIS!
 4. **Sticker completo:** `.ss [responder mídia]`
 
 ---

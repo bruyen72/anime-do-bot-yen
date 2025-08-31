@@ -3,7 +3,7 @@ const { writeFile, unlink, access, stat } = require('fs/promises');
 const { tmpdir } = require('os');
 const { join } = require('path');
 const smartStickerConverter = require('../../lib/SmartStickerConverter');
-const smartVideoProcessor = require('../../lib/SmartVideoProcessor');
+const streamVideoProcessor = require('../../lib/StreamVideoProcessor');
 
 // Logger colorido para stickers
 class StickerLogger {
@@ -190,32 +190,30 @@ async function handleStickerCommand(sock, msg, sendMessage) {
       StickerLogger.success(`Download concluído: ${mediaBuffer.length} bytes`);
 
       if (isVideo) {
-        // Para vídeos, usar SmartVideoProcessor
-        StickerLogger.process('Processando vídeo com sistema inteligente...');
+        // Para vídeos, usar StreamVideoProcessor (SEM arquivos temporários)
+        StickerLogger.process('Processando vídeo via streaming FFmpeg...');
         
         try {
           // Verificar se é um vídeo válido
-          const isValid = smartVideoProcessor.isValidVideo(mediaBuffer);
+          const isValid = streamVideoProcessor.isValidVideo(mediaBuffer);
           StickerLogger.info(`Vídeo válido: ${isValid ? 'Sim' : 'Não'}`);
           
           if (!isValid) {
-            await sendMessage(chatId, '*[⚠️]* Formato de vídeo não suportado. Tente outro vídeo!');
+            await sendMessage(chatId, '*[⚠️]* Formato de vídeo não suportado. Tente com MP4, WebM ou AVI!');
             return;
           }
 
           // Mostrar status do sistema
-          const status = smartVideoProcessor.getStatus();
-          StickerLogger.info(`Sistema: ${status.hasFFmpeg ? 'FFmpeg disponível' : 'Modo fallback'}`);
+          const status = streamVideoProcessor.getStatus();
+          StickerLogger.info(`Método: ${status.method}`);
 
-          // Processar vídeo (FFmpeg ou fallback inteligente)
-          const stickerBuffer = await smartVideoProcessor.processVideo(mediaBuffer, {
-            timePosition: '00:00:02',
-            width: 512,
-            height: 512,
-            quality: 85
+          // Processar vídeo usando stdin/stdout streaming
+          const stickerBuffer = await streamVideoProcessor.processVideo(mediaBuffer, {
+            timePosition: '00:00:02', // Frame aos 2 segundos
+            quality: 80
           });
 
-          StickerLogger.success(`Sticker criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
+          StickerLogger.success(`Sticker de vídeo criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
 
           await sock.sendMessage(chatId, {
             sticker: stickerBuffer
@@ -223,14 +221,26 @@ async function handleStickerCommand(sock, msg, sendMessage) {
             quoted: msg
           });
 
-          StickerLogger.success("Sticker de vídeo enviado!");
-          
-          // Limpeza periódica
-          setTimeout(() => smartVideoProcessor.cleanup(), 15000);
+          StickerLogger.success("🎬 Sticker de vídeo enviado com sucesso!");
           
         } catch (videoError) {
-          StickerLogger.error(`Erro no processamento: ${videoError.message}`);
-          await sendMessage(chatId, `*[❌]* Erro ao processar vídeo: ${videoError.message}`);
+          StickerLogger.error(`Erro no streaming: ${videoError.message}`);
+          
+          // Tentar fallback final
+          try {
+            StickerLogger.info('Usando fallback visual final...');
+            const fallbackSticker = await streamVideoProcessor.createVideoInfoSticker(mediaBuffer, videoError.message);
+            
+            await sock.sendMessage(chatId, {
+              sticker: fallbackSticker
+            }, {
+              quoted: msg
+            });
+            
+            StickerLogger.warning("Enviado sticker informativo devido ao erro");
+          } catch (fallbackError) {
+            await sendMessage(chatId, `*[❌]* Falha completa: ${videoError.message}`);
+          }
         }
         return;
       } else {
@@ -286,7 +296,7 @@ async function handleStickerCommand(sock, msg, sendMessage) {
 module.exports = {
   name: "s4",
   alias: ["sticker4", "fig4"],
-  desc: "Converte imagem/vídeo para sticker - Sistema Inteligente (FFmpeg quando disponível)",
+  desc: "Converte imagem/vídeo para sticker usando FFmpeg Streaming (SEM arquivos temporários)",
   category: "Utilities",
   usage: ".s4 [responda uma imagem ou vídeo]",
   react: "🎨",
