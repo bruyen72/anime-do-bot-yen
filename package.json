@@ -9,7 +9,7 @@
     "dev": "node --max-old-space-size=6144 index.js", 
     "build": "npm install --production --no-optional", 
     "prestart": "echo '🚀 Iniciando YakaBot...'", 
-    "postinstall": "echo '✅ Instalação concluída'" 
+    "postinstall": "echo '✅ Instalação concluída' && npx puppeteer browsers install chrome || echo '⚠️ Chrome install failed, will use system Chrome'" 
   }, 
   "repository": { 
     "type": "git", 

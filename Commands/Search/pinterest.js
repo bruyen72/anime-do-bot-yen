@@ -171,7 +171,29 @@ class PinterestImageScraper {
 
   // Cria instância de navegador otimizada
   async createBrowserInstance() {
-    const browser = await puppeteer.launch({
+    const fs = require('fs');
+    
+    // Tenta diferentes caminhos para o Chrome
+    const possiblePaths = [
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/app/.chrome/chrome',
+      process.env.CHROME_EXECUTABLE_PATH
+    ].filter(Boolean);
+
+    let executablePath = undefined;
+    
+    // Procura por Chrome instalado
+    for (const path of possiblePaths) {
+      if (fs.existsSync(path)) {
+        executablePath = path;
+        break;
+      }
+    }
+
+    const launchOptions = {
       headless: true,
       args: [
         "--no-sandbox",
@@ -198,7 +220,14 @@ class PinterestImageScraper {
         "--disable-client-side-phishing-detection"
       ],
       defaultViewport: { width: 1366, height: 768 },
-    });
+    };
+
+    // Adiciona executablePath apenas se encontrou
+    if (executablePath) {
+      launchOptions.executablePath = executablePath;
+    }
+
+    const browser = await puppeteer.launch(launchOptions);
     
     const instanceId = Date.now() + Math.random();
     return {
