@@ -1,0 +1,1124 @@
+const puppeteer = require("puppeteer");
+const fetch = require("node-fetch");
+const fs = require("fs");
+const path = require("path");
+const { exec } = require("child_process");
+
+// Sistema melhorado anti-repetição (mantendo a estrutura original)
+const gifHistory = {
+  // Armazena histórico de GIFs enviados por termo
+  sent: {},
+  // Lista de GIFs usados no comando atual (para evitar repetições imediatas)
+  currentCommandGifs: {},
+  
+  // Inicia um novo comando multi-figurinhas
+  startNewCommand: function(term) {
+    this.currentCommandGifs[term] = [];
+  },
+  
+  // Registra um GIF como enviado
+  markSent: function(term, url) {
+    // Histórico global
+    if (!this.sent[term]) {
+      this.sent[term] = [];
+    }
+    
+    // Adiciona ao histórico global se não estiver lá
+    if (!this.sent[term].includes(url)) {
+      this.sent[term].push(url);
+      // Limita tamanho do histórico para 15 últimos
+      if (this.sent[term].length > 15) {
+        this.sent[term].shift();
+      }
+    }
+    
+    // Também adiciona à lista do comando atual se existir
+    if (this.currentCommandGifs[term]) {
+      this.currentCommandGifs[term].push(url);
+    }
+  },
+  
+  // Verifica se GIF já foi enviado recentemente no histórico geral
+  wasRecentlySent: function(term, url) {
+    return this.sent[term] && this.sent[term].includes(url);
+  },
+  
+  // Verifica se GIF já foi usado no comando atual multi-figurinhas
+  wasUsedInCurrentCommand: function(term, url) {
+    return this.currentCommandGifs[term] && this.currentCommandGifs[term].includes(url);
+  },
+  
+  // Seleciona um GIF não repetido, priorizando evitar repetições no comando atual
+  selectNonRepeating: function(term, urls) {
+    if (!urls || urls.length === 0) return null;
+    
+    // PRIORIDADE 1: Evitar GIFs já usados no comando atual (para múltiplas figurinhas)
+    if (this.currentCommandGifs[term] && this.currentCommandGifs[term].length > 0) {
+      const notUsedInCommand = urls.filter(url => !this.wasUsedInCurrentCommand(term, url));
+      
+      if (notUsedInCommand.length > 0) {
+        // Encontramos GIFs que não foram usados neste comando atual
+        // PRIORIDADE 2: Entre os não usados no comando, pegar que não foram enviados recentemente
+        const neverSentRecently = notUsedInCommand.filter(url => !this.wasRecentlySent(term, url));
+        
+        if (neverSentRecently.length > 0) {
+          // Melhor caso: GIF não usado no comando atual e nunca enviado recentemente
+          const selected = neverSentRecently[Math.floor(Math.random() * neverSentRecently.length)];
+          this.markSent(term, selected);
+          return selected;
+        }
+        
+        // Segundo melhor: pelo menos não usado no comando atual
+        const selected = notUsedInCommand[Math.floor(Math.random() * notUsedInCommand.length)];
+        this.markSent(term, selected);
+        return selected;
+      }
+    }
+    
+    // Se chegou aqui: todos os GIFs já foram usados no comando atual
+    // ou não estamos em um comando multi-figurinhas
+    
+    // PRIORIDADE 3: Tenta pelo menos evitar os enviados recentemente
+    const nonRepeating = urls.filter(url => !this.wasRecentlySent(term, url));
+    
+    if (nonRepeating.length > 0) {
+      const selected = nonRepeating[Math.floor(Math.random() * nonRepeating.length)];
+      this.markSent(term, selected);
+      return selected;
+    }
+    
+    // ÚLTIMO CASO: Se todos já foram enviados, escolhe aleatoriamente
+    const selected = urls[Math.floor(Math.random() * urls.length)];
+    this.markSent(term, selected);
+    return selected;
+  }
+};
+
+// Configurações globais que podem ser alteradas para dispositivos com menos recursos
+const CONFIG = {
+  // Timeouts em milissegundos
+  BROWSER_TIMEOUT: 25000,
+  DOWNLOAD_TIMEOUT: 15000,
+  CONVERSION_TIMEOUT: 25000,
+  // Configurações do navegador
+  BROWSER_ARGS: [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-accelerated-2d-canvas",
+    "--disable-gpu",
+    "--disable-features=site-per-process",
+  ],
+  // Configurações do ffmpeg
+  FFMPEG_QUALITY: 70,         // 0-100, menor = pior qualidade mas arquivo menor
+  FFMPEG_FPS: 10,             // Frames por segundo no WebP final
+  // Número máximo de tentativas
+  MAX_SEARCH_ATTEMPTS: 3,     // Tentativas de busca
+  MAX_CONVERSION_ATTEMPTS: 3, // Tentativas de conversão
+  // Número mínimo de GIFs para considerar sucesso na busca
+  MIN_GIFS_REQUIRED: 1,
+};
+
+let browser;
+let loggedIn = false;
+let cookiesSet = false;
+
+const EMAIL = "brunoruthes92@gmail.com";
+const PASSWORD = "BRPO@hulk1";
+
+async function getBrowser() {
+  if (!browser) {
+    console.log("[LOG] Iniciando Puppeteer...");
+    browser = await puppeteer.launch({
+      headless: true,
+      args: CONFIG.BROWSER_ARGS,
+      timeout: CONFIG.BROWSER_TIMEOUT,
+    });
+  }
+  return browser;
+}
+
+async function createPage() {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+
+  await page.setRequestInterception(true);
+  page.on("request", (req) => {
+    const type = req.resourceType();
+    if (
+      type === "font" ||
+      type === "media" ||
+      (type === "stylesheet" && !req.url().includes("pinterest"))
+    ) {
+      req.abort();
+    } else {
+      req.continue();
+    }
+  });
+
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+      "(KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+  );
+
+  // Restaurar cookies salvos
+  if (cookiesSet) {
+    try {
+      const cookiesPath = path.join(__dirname, "pinterest_cookies.json");
+      if (fs.existsSync(cookiesPath)) {
+        const cookieString = fs.readFileSync(cookiesPath, "utf-8");
+        const cookies = JSON.parse(cookieString);
+        await page.setCookie(...cookies);
+        console.log("[LOG] Cookies aplicados.");
+      }
+    } catch (err) {
+      console.error("[ERRO] Carregando cookies:", err.message);
+    }
+  }
+
+  return page;
+}
+
+async function login() {
+  if (loggedIn) {
+    console.log("[LOG] Sessão já autenticada.");
+    return;
+  }
+
+  console.log("[LOG] Realizando login no Pinterest...");
+  const page = await createPage();
+
+  try {
+    await page.goto("https://www.pinterest.com/login/", {
+      waitUntil: "domcontentloaded",
+      timeout: 15000,
+    });
+
+    try {
+      await page.waitForSelector('button[data-test-id="accept-cookies-button"]', { timeout: 5000 });
+      await page.click('button[data-test-id="accept-cookies-button"]');
+    } catch {}
+
+    const emailSelectors = [
+      'input[name="id"]',
+      'input[id="email"]',
+      'input[name="username"]',
+      'input[type="email"]',
+    ];
+
+    let emailSelectorFound = false;
+    for (const selector of emailSelectors) {
+      try {
+        await page.waitForSelector(selector, { timeout: 3000 });
+        await page.type(selector, EMAIL, { delay: 10 });
+        emailSelectorFound = true;
+        break;
+      } catch {}
+    }
+
+    if (!emailSelectorFound) throw new Error("Campo de email não encontrado");
+
+    await page.waitForSelector('input[name="password"]', { timeout: 3000 });
+    await page.type('input[name="password"]', PASSWORD, { delay: 10 });
+
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 }),
+    ]);
+
+    if (page.url().includes("/login")) {
+      throw new Error("Login falhou. Verifique as credenciais.");
+    }
+
+    const cookies = await page.cookies();
+    fs.writeFileSync(
+      path.join(__dirname, "pinterest_cookies.json"),
+      JSON.stringify(cookies, null, 2)
+    );
+
+    loggedIn = true;
+    cookiesSet = true;
+    console.log("[LOG] Login realizado com sucesso!");
+  } catch (error) {
+    console.error("[ERRO] Durante login:", error.message);
+    throw error;
+  } finally {
+    await page.close();
+  }
+}
+
+async function downloadGif(url, outputPath) {
+  console.log(`[LOG] Baixando GIF de: ${url}`);
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+        'Accept': 'image/gif,image/*,*/*;q=0.8',
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Referer': 'https://www.pinterest.com/'
+      }
+    });
+    clearTimeout(timeout);
+    
+    if (!res.ok) throw new Error(`Erro ao baixar GIF: ${res.statusText}`);
+    
+    const fileStream = fs.createWriteStream(outputPath);
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Download timeout'));
+      }, 10000);
+      
+      res.body.pipe(fileStream);
+      res.body.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+      
+      fileStream.on("finish", () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+      
+      fileStream.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+    
+    console.log("[LOG] Download do GIF concluído.");
+    
+    // Verifica se o arquivo é válido
+    const stats = fs.statSync(outputPath);
+    if (stats.size < 1000) {
+      throw new Error('GIF baixado é muito pequeno (possivelmente corrompido)');
+    }
+  } catch (error) {
+    console.error(`[ERRO] Download do GIF falhou: ${error.message}`);
+    throw error;
+  }
+}
+
+async function convertGifToWebp(inputPath, outputPath) {
+  console.log("[LOG] Convertendo GIF para WebP animado...");
+
+  // Primeiro, verifica se o GIF é válido
+  try {
+    const stats = fs.statSync(inputPath);
+    if (stats.size < 1000) {
+      throw new Error('GIF de entrada é muito pequeno para processamento');
+    }
+  } catch (e) {
+    console.error("[ERRO] Verificação do GIF falhou:", e.message);
+    throw e;
+  }
+
+  return new Promise((resolve, reject) => {
+    try {
+      // Se estivermos em um dispositivo móvel ou com menos recursos, usar configurações mais leves
+      const isLowResourceMode = process.env.LOW_RESOURCE_MODE === 'true';
+      
+      let cmd;
+      if (isLowResourceMode) {
+        // Configurações mais leves para dispositivos com menos recursos
+        cmd = `ffmpeg -i "${inputPath}" -vcodec libwebp -filter:v fps=fps=10 -lossless 0 -compression_level 3 -q:v 85 -loop 0 -preset default -an -vsync 0 "${outputPath}" -y`;
+      } else {
+        // Tenta primeiro com configurações de boa qualidade
+        cmd = `ffmpeg -i "${inputPath}" -filter_complex "[0:v] fps=10,scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000" -vcodec libwebp -lossless 0 -compression_level 6 -q:v 70 -loop 0 -preset default -an -vsync 0 "${outputPath}" -y`;
+      }
+      
+      // Define um timeout para a conversão
+      const childProcess = exec(cmd);
+      
+      // Timeout para evitar processos presos
+      const timeout = setTimeout(() => {
+        childProcess.kill('SIGTERM');
+        reject(new Error('Timeout na conversão do GIF para WebP'));
+      }, 25000);
+      
+      childProcess.on('error', (error) => {
+        clearTimeout(timeout);
+        console.error("[ERRO] ffmpeg:", error.message);
+        
+        // Se falhar, tenta com configurações mais simples
+        if (!isLowResourceMode) {
+          console.log("[LOG] Tentando converter com configurações mais simples...");
+          const fallbackCmd = `ffmpeg -i "${inputPath}" -vcodec libwebp -filter:v fps=fps=10 -lossless 0 -compression_level 3 -q:v 80 -loop 0 -preset default -an -vsync 0 "${outputPath}" -y`;
+          
+          exec(fallbackCmd, (fallbackError, stdout, stderr) => {
+            if (fallbackError) {
+              console.error("[ERRO] ffmpeg fallback:", fallbackError.message);
+              reject(fallbackError);
+            } else {
+              console.log("[LOG] Conversão para WebP animado concluída com configurações alternativas.");
+              resolve();
+            }
+          });
+        } else {
+          reject(error);
+        }
+      });
+      
+      childProcess.on('exit', (code) => {
+        clearTimeout(timeout);
+        if (code === 0) {
+          console.log("[LOG] Conversão para WebP animado concluída com sucesso.");
+          resolve();
+        } else {
+          console.error(`[ERRO] ffmpeg saiu com código ${code}`);
+          
+          // Se falhar, tenta com configurações mais simples
+          if (!isLowResourceMode) {
+            console.log("[LOG] Tentando converter com configurações mais simples...");
+            const fallbackCmd = `ffmpeg -i "${inputPath}" -vcodec libwebp -filter:v fps=fps=10 -lossless 0 -compression_level 3 -q:v 80 -loop 0 -preset default -an -vsync 0 "${outputPath}" -y`;
+            
+            exec(fallbackCmd, (fallbackError, stdout, stderr) => {
+              if (fallbackError) {
+                console.error("[ERRO] ffmpeg fallback:", fallbackError.message);
+                reject(fallbackError);
+              } else {
+                console.log("[LOG] Conversão para WebP animado concluída com configurações alternativas.");
+                resolve();
+              }
+            });
+          } else {
+            reject(new Error(`ffmpeg saiu com código ${code}`));
+          }
+        }
+      });
+      
+    } catch (error) {
+      console.error("[ERRO] Iniciando ffmpeg:", error.message);
+      reject(error);
+    }
+  });
+}
+
+// Função para buscar GIFs no Pinterest com retry e métodos alternativos
+async function searchGifs(searchTerm) {
+  console.log(`[LOG] Buscando GIFs para: ${searchTerm}`);
+  // Tentar login, mas prosseguir mesmo que falhe
+  if (!loggedIn) {
+    try {
+      await login();
+    } catch (e) {
+      console.log("[WARN] Login falhou, continuando sem login.");
+    }
+  }
+  // Múltiplas abordagens de busca para aumentar chances de sucesso
+  let allGifs = [];
+  let attempts = 0;
+  const maxAttempts = 3;
+  
+  while (allGifs.length === 0 && attempts < maxAttempts) {
+    attempts++;
+    console.log(`[LOG] Tentativa ${attempts}/${maxAttempts}`);
+    
+    // Use termos de busca ligeiramente diferentes em cada tentativa
+    let queryTerm = searchTerm;
+    if (attempts === 2) queryTerm += " animado";
+    if (attempts === 3) queryTerm = "animated " + searchTerm;
+    
+    // Crie URL considerando o termo de busca atual
+    const url = `https://br.pinterest.com/search/pins/?q=${encodeURIComponent(queryTerm)}%20gif`;
+    const page = await createPage();
+    
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+      
+      // Adicionando um tempo maior de espera e mais scrolls para carregar mais conteúdo
+      await page.evaluate(() => new Promise(r => setTimeout(r, 1500)));
+      
+      // Scroll em etapas para carregar mais conteúdo
+      await page.evaluate(async () => {
+        for (let i = 0; i < 5; i++) {
+          window.scrollBy(0, window.innerHeight);
+          await new Promise(r => setTimeout(r, 400));
+        }
+      });
+      
+      // Método primário: busca direta por elementos que contêm GIFs
+      const gifs = await page.evaluate(() => {
+        const urls = [];
+        // Busca em elementos de imagem e vídeo
+        document.querySelectorAll("img, video source").forEach((el) => {
+          const srcs = [];
+          
+          if (el.src && el.src.includes(".gif")) srcs.push(el.src);
+          
+          if (el.srcset) {
+            el.srcset.split(",").forEach(part => {
+              const url = part.trim().split(" ")[0];
+              if (url.includes(".gif")) srcs.push(url);
+            });
+          }
+          
+          if (el.dataset?.src?.includes(".gif")) srcs.push(el.dataset.src);
+          
+          urls.push(...srcs);
+        });
+        
+        return [...new Set(urls)].filter(u => u.startsWith("http"));
+      });
+      
+      console.log(`[LOG] Método primário: ${gifs.length} GIFs encontrados`);
+      allGifs.push(...gifs);
+      
+      // Método secundário: extração via regex do HTML (usado para páginas que carregam GIFs dinamicamente)
+      if (allGifs.length < 5) {
+        console.log("[LOG] Aplicando método secundário de busca");
+        const html = await page.content();
+        
+        // Regex melhorada para capturar mais padrões de URLs de GIFs
+        const regexPatterns = [
+          /https:\/\/[^"'\s)]+\.gif/g,
+          /https:\/\/i\.pinimg\.com\/[^"'\s)]+/g
+        ];
+        
+        for (const regex of regexPatterns) {
+          const matches = [...new Set(html.match(regex) || [])];
+          const filtered = matches.filter(url =>
+            url.startsWith("http") &&
+            !allGifs.includes(url) &&
+            (url.includes(".gif") || url.includes("originals") || url.includes("474x"))
+          );
+          
+          console.log(`[LOG] Regex ${regex}: ${filtered.length} URLs adicionais encontradas`);
+          allGifs.push(...filtered);
+        }
+      }
+      
+      // Método terciário: extração de URLs de JS carregados via network
+      if (allGifs.length < 3) {
+        console.log("[LOG] Aplicando método terciário via requisições de rede");
+        const requests = await page.evaluate(() => {
+          return performance.getEntriesByType("resource")
+            .filter(r => r.name.includes("pinimg") || r.name.includes(".gif"))
+            .map(r => r.name);
+        });
+        
+        const filteredRequests = [...new Set(requests)].filter(url =>
+          url.startsWith("http") &&
+          !allGifs.includes(url) &&
+          (url.includes(".gif") || url.includes("originals") || url.includes("474x"))
+        );
+        
+        console.log(`[LOG] Método terciário: ${filteredRequests.length} URLs adicionais encontradas`);
+        allGifs.push(...filteredRequests);
+      }
+      
+      await page.close();
+      
+      // Se encontramos GIFs suficientes, podemos interromper as tentativas
+      if (allGifs.length >= 5) break;
+      
+    } catch (error) {
+      console.error(`[ERRO] Tentativa ${attempts} falhou:`, error.message);
+      if (page && !page.isClosed()) await page.close();
+      // Continue para a próxima tentativa
+    }
+  }
+  
+  // Filtra para remover URLs inválidas e duplicadas
+  allGifs = [...new Set(allGifs)].filter(url =>
+    url &&
+    url.startsWith("http") &&
+    (url.includes(".gif") || url.toLowerCase().includes("pinimg"))
+  );
+  
+  console.log(`[LOG] Total final: ${allGifs.length} GIFs encontrados após ${attempts} tentativas`);
+  return allGifs;
+}
+
+// Processamento e envio do GIF como figurinha com retry e fallbacks
+async function processAndSendGif(Yaka, m, gifUrls, searchTerm) {
+  // NOVA PARTE: Seleciona um GIF não repetido
+  const uniqueGifUrl = gifHistory.selectNonRepeating(searchTerm, gifUrls);
+  
+  if (!uniqueGifUrl) {
+    throw new Error("Não foi possível selecionar um GIF para processar");
+  }
+  
+  console.log(`[LOG] Selecionado GIF único: ${uniqueGifUrl}`);
+  
+  // Tente vários GIFs até conseguir processar com sucesso
+  let success = false;
+  let lastError = null;
+  let attemptCount = 0;
+  
+  // Tenta processar o GIF selecionado
+  const gifPath = path.join(__dirname, `temp_${Date.now()}_unique.gif`);
+  const webpPath = gifPath.replace(".gif", ".webp");
+  
+  try {
+    // Verifica se a URL é válida com um HEAD request
+    try {
+      const checkResponse = await fetch(uniqueGifUrl, { method: 'HEAD', timeout: 5000 });
+      if (!checkResponse.ok) {
+        console.log(`[WARN] URL inválida: ${uniqueGifUrl} (status ${checkResponse.status})`);
+        throw new Error("URL inválida"); // Força ir para o fallback
+      }
+    } catch (e) {
+      console.log(`[WARN] Erro ao verificar URL: ${e.message}`);
+      throw e; // Força ir para o fallback
+    }
+    
+    // Tenta baixar o GIF com timeout
+    try {
+      await Promise.race([
+        downloadGif(uniqueGifUrl, gifPath),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout no download")), 15000))
+      ]);
+    } catch (e) {
+      console.log(`[WARN] Falha ao baixar GIF: ${e.message}`);
+      cleanupFiles(gifPath);
+      throw e;
+    }
+    
+    // Verifica se o arquivo baixado é realmente válido
+    if (!fs.existsSync(gifPath) || fs.statSync(gifPath).size < 1000) {
+      cleanupFiles(gifPath);
+      throw new Error("Arquivo GIF baixado é muito pequeno ou inválido");
+    }
+    
+    // Tenta converter para WebP com timeout
+    try {
+      await Promise.race([
+        convertGifToWebp(gifPath, webpPath),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout na conversão")), 20000))
+      ]);
+    } catch (e) {
+      console.log(`[WARN] Falha ao converter GIF para WebP: ${e.message}`);
+      cleanupFiles(gifPath, webpPath);
+      throw e;
+    }
+    
+    // Verifica se o WebP foi criado e é válido
+    if (!fs.existsSync(webpPath) || fs.statSync(webpPath).size < 1000) {
+      cleanupFiles(gifPath, webpPath);
+      throw new Error("Arquivo WebP gerado é muito pequeno ou inválido");
+    }
+    
+    // Tenta enviar a figurinha
+    console.log("[LOG] Enviando sticker animado...");
+    
+    await Yaka.sendMessage(
+      m.from,
+      {
+        sticker: { stream: fs.createReadStream(webpPath) },
+      },
+      { quoted: m }
+    );
+    
+    console.log("[LOG] Sticker enviado com sucesso!");
+    success = true;
+    
+    // IMPORTANTE: Marcar como enviado no sistema anti-repetição
+    gifHistory.markSent(searchTerm, uniqueGifUrl);
+    
+  } catch (error) {
+    console.error("[ERRO] Processamento do GIF falhou:", error.message);
+    lastError = error;
+    
+    // Embaralha a lista de GIFs para tentar diferentes URLs
+    const shuffledGifs = [...gifUrls].sort(() => Math.random() - 0.5);
+    
+    // Tenta baixar e converter até 3 GIFs diferentes
+    for (const gifUrl of shuffledGifs.slice(0, Math.min(5, shuffledGifs.length))) {
+      // Pula o GIF que já tentamos
+      if (gifUrl === uniqueGifUrl) continue;
+      
+      // Também pula GIFs que já usamos neste comando múltiplo
+      if (gifHistory.wasUsedInCurrentCommand(searchTerm, gifUrl)) continue;
+      
+      attemptCount++;
+      console.log(`[LOG] Tentativa fallback ${attemptCount}: processando GIF ${gifUrl}`);
+      
+      const fallbackGifPath = path.join(__dirname, `temp_${Date.now()}_${attemptCount}.gif`);
+      const fallbackWebpPath = fallbackGifPath.replace(".gif", ".webp");
+      
+      try {
+        // Primeiro, verifica se a URL é válida com um HEAD request
+        try {
+          const checkResponse = await fetch(gifUrl, { method: 'HEAD', timeout: 5000 });
+          if (!checkResponse.ok) {
+            console.log(`[WARN] URL fallback inválida: ${gifUrl} (status ${checkResponse.status})`);
+            continue;
+          }
+        } catch (e) {
+          console.log(`[WARN] Erro ao verificar URL fallback: ${e.message}`);
+          continue;
+        }
+        
+        // Tenta baixar o GIF com timeout
+        try {
+          await Promise.race([
+            downloadGif(gifUrl, fallbackGifPath),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout no download")), 15000))
+          ]);
+        } catch (e) {
+          console.log(`[WARN] Falha ao baixar GIF fallback: ${e.message}`);
+          cleanupFiles(fallbackGifPath);
+          continue;
+        }
+        
+        // Verifica se o arquivo baixado é realmente válido
+        if (!fs.existsSync(fallbackGifPath) || fs.statSync(fallbackGifPath).size < 1000) {
+          console.log("[WARN] Arquivo GIF fallback baixado é muito pequeno ou inválido");
+          cleanupFiles(fallbackGifPath);
+          continue;
+        }
+        
+        // Tenta converter para WebP com timeout
+        try {
+          await Promise.race([
+            convertGifToWebp(fallbackGifPath, fallbackWebpPath),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout na conversão")), 20000))
+          ]);
+        } catch (e) {
+          console.log(`[WARN] Falha ao converter GIF fallback para WebP: ${e.message}`);
+          cleanupFiles(fallbackGifPath, fallbackWebpPath);
+          continue;
+        }
+        
+        // Verifica se o WebP foi criado e é válido
+        if (!fs.existsSync(fallbackWebpPath) || fs.statSync(fallbackWebpPath).size < 1000) {
+          console.log("[WARN] Arquivo WebP fallback gerado é muito pequeno ou inválido");
+          cleanupFiles(fallbackGifPath, fallbackWebpPath);
+          continue;
+        }
+        
+        // Tenta enviar a figurinha
+        console.log("[LOG] Enviando sticker animado fallback...");
+        
+        try {
+          await Yaka.sendMessage(
+            m.from,
+            {
+              sticker: { stream: fs.createReadStream(fallbackWebpPath) },
+            },
+            { quoted: m }
+          );
+          console.log("[LOG] Sticker fallback enviado com sucesso!");
+          success = true;
+          
+          // IMPORTANTE: Marcar como enviado no sistema anti-repetição
+          gifHistory.markSent(searchTerm, gifUrl);
+          
+          break; // Se tiver sucesso, sai do loop
+        } catch (e) {
+          console.log(`[WARN] Falha ao enviar sticker fallback: ${e.message}`);
+          lastError = e;
+          // Continue tentando outras URLs
+        } finally {
+          cleanupFiles(fallbackGifPath, fallbackWebpPath);
+        }
+        
+      } catch (error) {
+        console.error(`[ERRO] Processando GIF fallback ${attemptCount}:`, error);
+        lastError = error;
+        cleanupFiles(fallbackGifPath, fallbackWebpPath);
+        // Continue tentando com outros GIFs
+      }
+    }
+    
+    // Se não conseguiu processar nenhum GIF, tente uma abordagem alternativa
+    if (!success && shuffledGifs.length > 0) {
+      try {
+        console.log("[LOG] Tentando método alternativo para processamento de GIF...");
+        
+        // Usa o primeiro GIF da lista e tenta uma abordagem simplificada
+        // Tenta achar um que não tenha sido usado no comando atual
+        let simpleGifUrl = shuffledGifs[0];
+        for (const url of shuffledGifs) {
+          if (!gifHistory.wasUsedInCurrentCommand(searchTerm, url)) {
+            simpleGifUrl = url;
+            break;
+          }
+        }
+        
+        const simpleGifPath = path.join(__dirname, `simple_${Date.now()}.gif`);
+        const simpleWebpPath = simpleGifPath.replace(".gif", ".webp");
+        
+        // Download direto sem verificações
+        const response = await fetch(simpleGifUrl, { timeout: 10000 });
+        const buffer = await response.buffer();
+        fs.writeFileSync(simpleGifPath, buffer);
+        
+        // Conversão com configurações mais simples
+        const cmd = `ffmpeg -i "${simpleGifPath}" -vcodec libwebp -filter:v fps=fps=15 -lossless 0 -compression_level 3 -q:v 85 -loop 0 -preset default -an -vsync 0 "${simpleWebpPath}" -y`;
+        
+        await new Promise((resolve, reject) => {
+          exec(cmd, (error, stdout, stderr) => {
+            if (error) {
+              console.error("[ERRO] ffmpeg simples:", error.message);
+              reject(error);
+            } else {
+              resolve();
+            }
+          });
+        });
+        
+        // Envia o sticker
+        await Yaka.sendMessage(
+          m.from,
+          {
+            sticker: { stream: fs.createReadStream(simpleWebpPath) },
+          },
+          { quoted: m }
+        );
+        
+        console.log("[LOG] Sticker enviado com sucesso via método alternativo!");
+        success = true;
+        
+        // IMPORTANTE: Marcar como enviado no sistema anti-repetição
+        gifHistory.markSent(searchTerm, simpleGifUrl);
+        
+        // Limpar arquivos
+        cleanupFiles(simpleGifPath, simpleWebpPath);
+        
+      } catch (error) {
+        console.error("[ERRO] Método alternativo falhou:", error);
+        lastError = error;
+      }
+    }
+  } finally {
+    // Garante limpeza dos arquivos temporários
+    cleanupFiles(gifPath, webpPath);
+  }
+  
+  // Se ainda não conseguiu, retorne um erro para informar o usuário
+  if (!success) {
+    throw new Error(`Não foi possível processar nenhum dos ${attemptCount} GIFs tentados. ${lastError?.message || ''}`);
+  }
+  
+  return success;
+}
+
+// Função auxiliar para limpar arquivos temporários
+function cleanupFiles(...files) {
+  for (const file of files) {
+    if (file && fs.existsSync(file)) {
+      try {
+        fs.unlinkSync(file);
+      } catch (e) {
+        console.error(`[WARN] Falha ao remover arquivo ${file}:`, e.message);
+      }
+    }
+  }
+}
+
+const shortToFullTermGif = {
+  gojo: "gojo satoru",
+  anime: "anime gif",
+  cute: "cute gif",
+  dance: "dance gif",
+  cat: "cat gif",
+  sung: "sung jin woo",
+  nezuko: "nezuko kamado",
+  bachira: "bachira meguru",
+  sukuna: "ryomen sukuna",
+  kiss: "kiss gif",
+  love: "anime love",
+  toji: "toji fushiguro gif",
+};
+
+const termToUrlGif = {
+  "gojo satoru": "https://br.pinterest.com/search/pins/?q=gojo%20satoru%20gif",
+  "anime gif": "https://br.pinterest.com/search/pins/?q=anime%20gif",
+  "cute gif": "https://br.pinterest.com/search/pins/?q=cute%20gif",
+  "dance gif": "https://br.pinterest.com/search/pins/?q=dance%20gif",
+  "cat gif": "https://br.pinterest.com/search/pins/?q=cat%20gif",
+  "sung jin woo": "https://br.pinterest.com/search/pins/?q=sung%20jin%20woo%20gif",
+  "nezuko kamado": "https://br.pinterest.com/search/pins/?q=nezuko%20kamado%20gif",
+  "bachira meguru": "https://br.pinterest.com/search/pins/?q=bachira%20meguru%20gif",
+  "ryomen sukuna": "https://br.pinterest.com/search/pins/?q=ryomen%20sukuna%20gif",
+  "kiss gif": "https://br.pinterest.com/search/pins/?q=kiss%20gif",
+  "anime love": "https://br.pinterest.com/search/pins/?q=anime%20love%20gif",
+  "toji fushiguro gif": "https://br.pinterest.com/search/pins/?q=toji%20fushiguro%20gif",
+};
+
+// Módulo principal
+module.exports = {
+  name: "pinterestgif",
+  alias: ["pingif"],
+  desc: "Busca GIFs animados no Pinterest e envia como figurinha animada no WhatsApp",
+  category: "Search",
+  usage: "pingif <termo curto> | pingif search <termo livre> | .pinterestgif <termo livre>#<quantidade>",
+  react: "🎞️",
+
+  start: async (Yaka, m, { args, body, prefix }) => {
+    // Verificar se é comando .pinterestgif para busca personalizada
+    const isPinterestGif = body && body.toLowerCase().startsWith('.pinterestgif');
+  
+    let searchTerm = "";
+    let quantity = 1; // Quantidade padrão é 1
+  
+    if (isPinterestGif) {
+      // Para comando .pinterestgif, pegar o termo depois do comando
+      let fullSearchQuery = body.slice(13).trim();
+      
+      // Verifica se tem indicação de quantidade (#número)
+      if (fullSearchQuery.includes('#')) {
+        const parts = fullSearchQuery.split('#');
+        searchTerm = parts[0].trim();
+        
+        // Extrai e valida a quantidade
+        const requestedQuantity = parseInt(parts[1]);
+        if (!isNaN(requestedQuantity) && requestedQuantity > 0) {
+          // Limita a quantidade entre 1 e 10 para evitar sobrecarga
+          quantity = Math.min(10, requestedQuantity);
+        }
+      } else {
+        searchTerm = fullSearchQuery;
+      }
+    
+      if (!searchTerm) {
+        return Yaka.sendMessage(
+          m.from,
+          { text: "❌ Digite um termo para pesquisar depois de .pinterestgif\n\nDica: Você pode adicionar #número para receber múltiplas figurinhas (ex: .pinterestgif toji#3)" },
+          { quoted: m }
+        );
+      }
+    } else {
+      // Modo original com pingif
+      if (!args.length) {
+        // Lista os termos disponíveis com exemplos
+        const termsList = Object.keys(shortToFullTermGif)
+          .map(key => `• ${key} → ${shortToFullTermGif[key]}`)
+          .join("\n");
+        
+        return Yaka.sendMessage(
+          m.from,
+          {
+            text: "📋 *Uso:* pingif <termo> | pingif search <termo>\n\n" +
+                 "Para múltiplas figurinhas: .pinterestgif <termo>#<quantidade> (máx. 10)\n\n" +
+                 "*Termos disponíveis:*\n" + termsList
+          },
+          { quoted: m }
+        );
+      }
+
+      // Verifica se o argumento tem indicador de quantidade
+      if (args[0].includes('#')) {
+        const parts = args[0].split('#');
+        const short = parts[0].toLowerCase();
+        
+        // Extrai e valida a quantidade
+        const requestedQuantity = parseInt(parts[1]);
+        if (!isNaN(requestedQuantity) && requestedQuantity > 0) {
+          quantity = Math.min(10, requestedQuantity);
+        }
+        
+        if (!shortToFullTermGif[short]) {
+          return Yaka.sendMessage(
+            m.from,
+            { text: `❌ Termo curto inválido: ${short}. Use pingif search <termo> ou .pinterestgif <termo>` },
+            { quoted: m }
+          );
+        }
+        searchTerm = shortToFullTermGif[short];
+      } else if (args[0].toLowerCase() === "search") {
+        if (args.length < 2) {
+          return Yaka.sendMessage(
+            m.from,
+            { text: "❌ Especifique o termo: pingif search <algo>" },
+            { quoted: m }
+          );
+        }
+        
+        // Verifica se o último argumento tem indicador de quantidade
+        const lastArg = args[args.length - 1];
+        if (lastArg.includes('#')) {
+          const parts = lastArg.split('#');
+          args[args.length - 1] = parts[0]; // Atualiza o argumento removendo o #quantidade
+          
+          // Extrai e valida a quantidade
+          const requestedQuantity = parseInt(parts[1]);
+          if (!isNaN(requestedQuantity) && requestedQuantity > 0) {
+            quantity = Math.min(10, requestedQuantity);
+          }
+        }
+        
+        searchTerm = args.slice(1).join(" ");
+      } else {
+        const short = args[0].toLowerCase();
+        if (!shortToFullTermGif[short]) {
+          return Yaka.sendMessage(
+            m.from,
+            { text: `❌ Termo curto inválido: ${short}. Use pingif search <termo> ou .pinterestgif <termo>` },
+            { quoted: m }
+          );
+        }
+        searchTerm = shortToFullTermGif[short];
+      }
+    }
+
+    let processingMsg = null;
+    try {
+      // Enviar mensagem de "processando" primeiro
+      const quantityText = quantity > 1 ? ` (${quantity} figurinhas)` : '';
+      processingMsg = await Yaka.sendMessage(
+        m.from,
+        { text: `🔍 Buscando GIFs para "${searchTerm}"${quantityText}...` },
+        { quoted: m }
+      );
+    
+      // Definir timeout global para toda a operação
+      const searchTimeout = setTimeout(() => {
+        throw new Error("Tempo limite excedido na busca (30s). Tente novamente.");
+      }, 30000);
+    
+      // Buscar GIFs
+      const gifs = await searchGifs(searchTerm);
+      clearTimeout(searchTimeout);
+    
+      if (!gifs.length) {
+        // Atualizar mensagem de status
+        await Yaka.sendMessage(
+          m.from,
+          {
+            text: `❌ Nenhum GIF encontrado para "${searchTerm}". Tente outro termo ou use pingif com um termo fixo.`,
+            edit: processingMsg.key
+          }
+        );
+        return;
+      }
+    
+      // Atualizar mensagem de processamento
+      await Yaka.sendMessage(
+        m.from,
+        {
+          text: `✅ ${gifs.length} GIFs encontrados! Processando ${quantity} figurinha${quantity > 1 ? 's' : ''}...`,
+          edit: processingMsg.key
+        }
+      );
+      
+      // NOVO: Iniciar novo comando - essencial para evitar repetições em envios múltiplos
+      gifHistory.startNewCommand(searchTerm);
+      
+      // NOVO: Para múltiplas figurinhas
+      let successCount = 0;
+      let failCount = 0;
+      
+      // Processa e envia a quantidade solicitada de GIFs
+      for (let i = 0; i < quantity; i++) {
+        try {
+          // Definir timeout para processamento
+          const processTimeout = setTimeout(() => {
+            throw new Error(`Tempo limite excedido no processamento da figurinha ${i+1} (25s).`);
+          }, 25000);
+          
+          // Atualiza mensagem de status para cada figurinha
+          if (quantity > 1) {
+            await Yaka.sendMessage(
+              m.from,
+              {
+                text: `✅ Processando figurinha ${i+1} de ${quantity}...`,
+                edit: processingMsg.key
+              }
+            );
+          }
+        
+          // Processar e enviar GIF - agora vai escolher GIFs diferentes para cada execução
+          await processAndSendGif(Yaka, m, gifs, searchTerm);
+          clearTimeout(processTimeout);
+          successCount++;
+          
+          // Pequena pausa entre o envio de múltiplas figurinhas para evitar spam
+          if (i < quantity - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+        } catch (error) {
+          console.error(`[ERRO] Figurinha ${i+1}:`, error);
+          failCount++;
+          
+          // Notifica erro mas continua com as próximas
+          await Yaka.sendMessage(
+            m.from,
+            { text: `⚠️ Erro ao processar figurinha ${i+1}: ${error.message}` },
+            { quoted: m }
+          );
+          
+          // Pequena pausa antes de tentar a próxima
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    
+      // Resumo final
+      if (quantity > 1) {
+        await Yaka.sendMessage(
+          m.from,
+          {
+            text: `✅ Concluído: ${successCount} figurinha${successCount !== 1 ? 's' : ''} enviada${successCount !== 1 ? 's' : ''} com sucesso.${failCount > 0 ? ` ${failCount} falha${failCount !== 1 ? 's' : ''}.` : ''}`,
+          },
+          { quoted: m }
+        );
+      }
+    
+      // Apagar mensagem de processamento após sucesso
+      try {
+        await Yaka.sendMessage(
+          m.from,
+          { delete: processingMsg.key }
+        );
+      } catch (e) {
+        console.log("[INFO] Não foi possível apagar mensagem de processamento");
+      }
+
+    } catch (error) {
+      console.error("[ERRO] pinterestgif command:", error);
+    
+      // Se tiver uma mensagem de processamento, atualiza com o erro
+      if (processingMsg) {
+        try {
+          await Yaka.sendMessage(
+            m.from,
+            {
+              text: `❌ Erro: ${error.message || "Falha ao processar"}. Tente novamente mais tarde ou use outro termo.`,
+              edit: processingMsg.key
+            }
+          );
+        } catch (e) {
+          // Se não conseguir editar, envia uma nova mensagem
+          await Yaka.sendMessage(
+            m.from,
+            {
+              text: `❌ Erro ao buscar ou enviar GIF como figurinha.\nMotivo: ${error.message || "Desconhecido"}`,
+            },
+            { quoted: m }
+          );
+        }
+      } else {
+        // Se não tiver mensagem de processamento, envia mensagem de erro normal
+        await Yaka.sendMessage(
+          m.from,
+          {
+            text: `❌ Erro ao buscar ou enviar GIF como figurinha.\nMotivo: ${error.message || "Desconhecido"}`,
+          },
+          { quoted: m }
+        );
+      }
+    
+      // Tenta uma recuperação automática para termos personalizados
+      if (!shortToFullTermGif[searchTerm] && !isPinterestGif) {
+        try {
+          // Sugerir usar um termo fixo predefinido
+          const suggestions = Object.keys(shortToFullTermGif).slice(0, 5).join(", ");
+          await Yaka.sendMessage(
+            m.from,
+            {
+              text: `💡 Dica: Tente usar um dos termos predefinidos como: ${suggestions}`,
+            },
+            { quoted: m }
+          );
+        } catch (e) {
+          console.error("[ERRO] Enviando sugestões:", e);
+        }
+      }
+    }
+  },
+};

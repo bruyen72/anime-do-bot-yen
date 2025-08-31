@@ -1,0 +1,1075 @@
+/*▓██   ██▓ ▄▄▄       ██ ▄█▀▄▄▄      
+ ▒██  ██▒▒████▄     ██▄█▒▒████▄    
+  ▒██ ██░▒██  ▀█▄  ▓███▄░▒██  ▀█▄  
+  ░ ▐██▓░░██▄▄▄▄██ ▓██ █▄░██▄▄▄▄██ 
+  ░ ██▒▓░ ▓█   ▓██▒▒██▒ █▄▓█   ▓██▒
+   ██▒▒▒  ▒▒   ▓▒█░▒ ▒▒ ▓▒▒▒   ▓▒█░
+ ▓██ ░▒░   ▒   ▒▒ ░░ ░▒ ▒░ ▒   ▒▒ ░
+ ▒ ▒ ░░    ░   ▒   ░ ░░ ░  ░   ▒   
+ ░ ░           ░  ░░  ░        ░  ░
+ ░ ░                               
+
+Olá,
+Obrigado por usar o bot Yaka.
+Eu sou,
+
+██╗   ██╗ █████╗ ██╗  ██╗ █████╗ ███████╗██╗  ██╗██╗
+╚██╗ ██╔╝██╔══██╗██║ ██╔╝██╔══██╗██╔════╝██║  ██║██║
+ ╚████╔╝ ███████║█████╔╝ ███████║███████╗███████║██║
+  ╚██╔╝  ██╔══██║██╔═██╗ ██╔══██║╚════██║██╔══██║██║
+   ██║   ██║  ██║██║  ██╗██║  ██║███████║██║  ██║██║
+   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝
+                                                    */
+
+   require("./index.js");
+   require("./config.js");
+   require("./BotCharacters.js");
+   
+   const { Collection, Function } = require("./lib");
+   const { isUrl } = Function;
+   const axios = require("axios");
+   const Func = require("./lib");
+   const chalk = require("chalk");
+   const { color } = require("./lib/color");
+   const os = require('os')
+   
+   const cool = new Collection();
+   const { mk, mku, mkchar } = require("./Database/dataschema.js");
+   const prefix = global.prefa;
+   
+   // Tenta configurar o Levels com MongoDB apenas se estiver configurado
+   try {
+     if (global.mongodb && global.mongodb.trim() !== "") {
+       global.Levels = require("discord-xp");
+       Levels.setURL(mongodb);
+       console.log(color("\nTentando conectar ao Discord XP com MongoDB...\n", "yellow"));
+     } else {
+       // Cria uma versão mock do Levels para quando não há MongoDB
+       global.Levels = {
+         appendXp: async () => {
+           return false;
+         },
+         fetch: async () => {
+           return { xp: 0, level: 0 };
+         },
+         fetchLeaderboard: async () => {
+           return [];
+         },
+       };
+       console.log(color("\nMongoDB não configurado. Usando sistema XP simulado.\n", "yellow"));
+     }
+   } catch (error) {
+     console.log(color("\nErro ao configurar Discord XP: " + error + "\n", "red"));
+     // Configuração de fallback para Levels
+     global.Levels = {
+       appendXp: async () => {
+         return false;
+       },
+       fetch: async () => {
+         return { xp: 0, level: 0 };
+       },
+       fetchLeaderboard: async () => {
+         return [];
+       },
+     };
+   }
+   
+   console.log(color("\nDatabase 1 connected  !\n", "lime"));
+   console.log(color("\nDatabase 2 connected !\n", "lime"));
+   console.log(color("\nCarregando, por favor aguarde...\n", "yellow"));
+   console.log(color('\nNão modifique este bot por conta própria!!\nPergunte ao proprietário antes de fazê-lo..\n', 'red'))
+   
+   module.exports = async (Yaka, m, commands, chatUpdate, store) => {
+     try {
+       let { type, isGroup, sender, from } = m;
+       let body =
+         type == "buttonsResponseMessage"
+           ? m.message[type].selectedButtonId
+           : type == "listResponseMessage"
+             ? m.message[type].singleSelectReply.selectedRowId
+             : type == "templateButtonReplyMessage"
+               ? m.message[type].selectedId
+               : m.text;
+       
+       // CRITICAL FIX: Garantir que body é uma string válida
+       if (!body) body = "";
+       
+       // FIX: Extrair o texto completo da mensagem de forma robusta
+       const messageText = m.text || 
+                          m.body || 
+                          (m.message?.conversation) || 
+                          (m.message?.extendedTextMessage?.text) || 
+                          body;
+
+       let prat =
+         type === "conversation" && body?.startsWith(prefix)
+           ? body
+           : (type === "imageMessage" || type === "videoMessage") &&
+             body &&
+             body?.startsWith(prefix)
+             ? body
+             : type === "extendedTextMessage" && body?.startsWith(prefix)
+               ? body
+               : type === "buttonsResponseMessage" && body?.startsWith(prefix)
+                 ? body
+                 : type === "listResponseMessage" && body?.startsWith(prefix)
+                   ? body
+                   : type === "templateButtonReplyMessage" && body?.startsWith(prefix)
+                     ? body
+                     : "";
+   
+       const metadata = isGroup ? await Yaka.groupMetadata(from) : {};
+       const pushname = m.pushName; //|| 'NO name'
+       const participants = isGroup ? metadata.participants : [sender];
+       const groupAdmin = isGroup
+         ? participants.filter((v) => v.admin !== null).map((v) => v.id)
+         : [];
+       const botNumber = await Yaka.decodeJid(Yaka.user.id);
+       const isBotAdmin = isGroup ? groupAdmin.includes(botNumber) : false;
+       const isAdmin = isGroup ? groupAdmin.includes(sender) : false;
+       const isCreator = [botNumber, ...global.owner]
+         .map((v) => v.replace(/[^0-9]/g, "") + "@s.whatsapp.net")
+         .includes(m.sender);
+       const isOwner = global.owner.includes(m.sender);
+       global.suppL = "https://chat.whatsapp.com/KLX59oSwhGWLCDNGshiwWv";
+   
+       const isCmd = body.startsWith(prefix);
+   
+       ////server uptime?///
+       const uptimeValue = os.uptime();
+       const uptime = `${Math.floor(uptimeValue / 3600)}h ${Math.floor(uptimeValue % 3600 / 60)}m ${Math.floor(uptimeValue % 60)}s`;
+       //////
+       const quoted = m.quoted ? m.quoted : m;
+       const mime = (quoted.msg || m.msg).mimetype || " ";
+       const isMedia = /image|video|sticker|audio/.test(mime);
+       const budy = typeof m.text == "string" ? m.text : "";
+       
+       // FIX: Captura correta dos argumentos
+       const cmdName = prat
+         .slice(prefix.length)
+         .trim()
+         .split(/ +/)
+         .shift()
+         .toLowerCase();
+       
+       // FIX: Parse robusto dos argumentos
+       const fullCommand = messageText.toLowerCase();
+       const argsWithCommand = messageText.split(' ');
+       const args = argsWithCommand.slice(1);
+       const ar = args.map((v) => v.toLowerCase());
+       let text = args.join(" ");
+       
+       const groupName = m.isGroup ? metadata.subject : "";
+   
+       const cmd =
+         commands.get(cmdName) ||
+         Array.from(commands.values()).find((v) =>
+           v.alias.find((x) => x.toLowerCase() == cmdName)
+         ) ||
+         "";
+       const icmd =
+         commands.get(cmdName) ||
+         Array.from(commands.values()).find((v) =>
+           v.alias.find((x) => x.toLowerCase() == cmdName)
+         );
+       
+       // FIX: Captura melhorada de menções
+       let mentionByTag = [];
+       
+       // Método 1: Captura padrão
+       if (type == "extendedTextMessage" && 
+           m.message?.extendedTextMessage?.contextInfo?.mentionedJid) {
+         mentionByTag = m.message.extendedTextMessage.contextInfo.mentionedJid;
+       }
+       
+       // Método 2: Fallback para m.mentionedJid
+       if (mentionByTag.length === 0 && m.mentionedJid?.length > 0) {
+         mentionByTag = m.mentionedJid;
+       }
+       
+       // Método 3: Extração de menções do texto
+       if (mentionByTag.length === 0 && messageText) {
+         const textMentions = messageText.match(/@(\d+)/g);
+         if (textMentions) {
+           mentionByTag = textMentions.map(mention => {
+             const number = mention.replace('@', '');
+             return number + '@s.whatsapp.net';
+           });
+         }
+       }
+   
+       // Verificação de ban (com tratamento para quando não há MongoDB)
+       let userBanned = false;
+       let banReason = "";
+       let banGcname = "";
+       
+       try {
+         let checkban = await mku.findOne({ id: m.sender });
+         if (checkban && checkban.ban !== "false") {
+           userBanned = true;
+           banReason = checkban.reason || "Sem motivo específico";
+           banGcname = checkban.gcname || "desconhecido";
+         }
+       } catch (error) {
+         console.log("Erro ao verificar status de ban: " + error);
+       }
+   
+       if (
+         !isCreator && 
+         isCmd && 
+         userBanned && 
+         budy != `${prefix}support` &&
+         budy != `${prefix}supportgc` &&
+         budy != `${prefix}owner` &&
+         budy != `${prefix}mods` &&
+         budy != `${prefix}mod` &&
+         budy != `${prefix}modlist`
+       ) {
+         return m.reply(
+           `Você está *Banido* de usar comandos por *${banReason}* de *${banGcname}*`
+         );
+       }
+   
+       // ------------------------ Character Configuration (Do not modify this part) ------------------------ //
+   
+       let char = "0"; // default one
+       let CharacterSelection = "0"; // user selected character
+   
+       try {
+         let character = await mkchar.findOne({ id: "1" });
+         if (character) {
+           CharacterSelection = character.seletedCharacter;
+         }
+       } catch (error) {
+         console.log("Erro ao buscar personagem: " + error);
+         CharacterSelection = char;
+       }
+   
+       let idConfig = "charID" + CharacterSelection;
+   
+       global.botName = global[idConfig].botName;
+       global.botVideo = global[idConfig].botVideo;
+       global.botImage1 = global[idConfig].botImage1;
+       global.botImage2 = global[idConfig].botImage2;
+       global.botImage3 = global[idConfig].botImage3;
+       global.botImage4 = global[idConfig].botImage4;
+       global.botImage5 = global[idConfig].botImage5;
+       global.botImage6 = global[idConfig].botImage6;
+       global.botImage7 = global[idConfig].botImage7;
+       
+   
+       //------------------------------------------- Antilink Configuration --------------------------------------------//
+   
+       let antilinkStatus = "false";
+       
+       try {
+         let checkdata = await mk.findOne({ id: m.from });
+         if (checkdata) {
+           antilinkStatus = checkdata.antilink || "false";
+           
+           if (checkdata.antilink == "true" && !isBotAdmin) {
+             await mk.updateOne({ id: m.from }, { antilink: "false" });
+             Yaka.sendMessage(m.from, { text: `Antilink foi *desativado* porque não sou mais um administrador.` });
+             antilinkStatus = "false";
+           }
+         }
+       } catch (error) {
+         console.log("Erro ao verificar antilink: " + error);
+       }
+   
+       if (m.isGroup && antilinkStatus == "true") {
+         linkgce = await Yaka.groupInviteCode(from);
+         if (budy.includes(`https://chat.whatsapp.com/${linkgce}`)) {
+           m.reply(
+             `Nenhuma ação será tomada porque você enviou o link deste grupo.`
+           );
+         } else if (budy.includes(`https://chat.whatsapp`)) {
+           bvl = `O administrador enviou um link, então não há problemas.`;
+           if (isAdmin) return m.reply(bvl);
+           if (m.key.fromMe) return m.reply(bvl);
+           if (isCreator) return m.reply(bvl);
+           kice = m.sender;
+           await Yaka.groupParticipantsUpdate(m.from, [kice], "remove");
+           await Yaka.sendMessage(
+             from,
+             {
+               delete: {
+                 remoteJid: m.from,
+                 fromMe: false,
+                 id: m.id,
+                 participant: m.sender,
+               },
+             },
+             {
+               quoted: m,
+             }
+           );
+           
+           try {
+             await mk.updateOne({ id: m.from }, { antilink: "true" }, { upsert: true });
+           } catch (error) {
+             console.log("Erro ao atualizar antilink: " + error);
+           }
+           
+           Yaka.sendMessage(
+             from,
+             {
+               text: `\`\`\`*Sistema Antilink*\`\`\`\n\n@${kice.split("@")[0]
+                 } Removido por enviar link de grupo WhatsApp neste grupo! Mensagem excluída.`,
+               mentions: [kice],
+             },
+             {
+               quoted: m,
+             }
+           );
+         } else if (isUrl(m.text) && !icmd && !isAdmin && !isCreator) {
+           await Yaka.sendMessage(
+             from,
+             {
+               delete: {
+                 remoteJid: m.from,
+                 fromMe: false,
+                 id: m.id,
+                 participant: m.sender,
+               },
+             },
+             {
+               quoted: m,
+             }
+           );
+           m.reply(
+             `Antilink está ativado! Para usar qualquer comando relacionado a links, use meu prefixo real (${prefix})! \n\nExemplo: ${prefix}igdl <link> ou ${prefix}ytmp4 <link>`
+           );
+         }
+       }
+   
+       //---------------------------------- Self/public/Private mode Configuration ------------------------------------//
+   
+       let modStatus = "false";
+       
+       try {
+         let modSTATUS = await mku.findOne({ id: m.sender });
+         if (modSTATUS) {
+           modStatus = modSTATUS.addedMods || "false";
+         }
+       } catch (error) {
+         console.log("Erro ao verificar status de moderador: " + error);
+       }
+   
+       let workerMode = "false";
+       
+       try {
+         let botModeSet = await mkchar.findOne({ id: "1" });
+         if (botModeSet) {
+           workerMode = botModeSet.privateMode || "false";
+         }
+       } catch (error) {
+         console.log("Erro ao verificar modo do bot: " + error);
+       }
+       
+       if (workerMode == "true") {
+         if (
+           !global.owner.includes(`${m.sender.split("@")[0]}`) &&
+           modStatus == "false" &&
+           isCmd &&
+           m.sender != botNumber
+         ) {
+           console.log("\nComando Rejeitado! O bot está no modo privado!\n");
+           return;
+         }
+       }
+       
+       if (workerMode == "self") {
+         if (m.sender != botNumber && isCmd) {
+           console.log("\nComando Rejeitado! O bot está no modo Self!\n");
+           return;
+         }
+       }
+   
+       //-------------------------------------- Group CMD On/OFF Configuration ----------------------------------------//
+   
+       let botSwitchGC = "true";
+       
+       try {
+         let botSwitchConfig = await mk.findOne({ id: m.from });
+         if (botSwitchConfig) {
+           botSwitchGC = botSwitchConfig.botSwitch || "true";
+         }
+       } catch (error) {
+         console.log("Erro ao verificar botSwitch: " + error);
+       }
+       
+       if (
+         m.isGroup &&
+         botSwitchGC == "false" &&
+         !isAdmin &&
+         !isOwner &&
+         modStatus == "false" &&
+         isCmd
+       ) {
+         return console.log(
+           `\nComando Rejeitado! O bot está desligado no grupo ${groupName}!\n`
+         );
+       }
+   
+       //------------------------------------------- Chatbot Configuration ---------------------------------------------//
+   
+       let csts = "false";
+       
+       try {
+         let chatbotStatus = await mk.findOne({ id: m.from });
+         if (chatbotStatus) {
+           csts = chatbotStatus.chatBot || "false";
+         }
+       } catch (error) {
+         console.log("Erro ao verificar status do chatbot: " + error);
+       }
+       
+       if (m.isGroup && csts == "true" && !icmd && !isCmd) {
+         if (m.quoted) {
+           if (m.quoted.sender == botNumber) {
+             try {
+               const botreply = await axios.get(
+                 `http://api.brainshop.ai/get?bid=174300&key=ugPE0tD90fafvu2N&uid=[uid]&msg=[${budy}]`
+               );
+               txt = `${botreply.data.cnt}`;
+               setTimeout(function () {
+                 m.reply(txt);
+               }, 2200);
+             } catch (error) {
+               console.log("Erro na API do chatbot: " + error);
+             }
+           }
+         }
+       }
+   
+       let PMcsts = "false";
+       
+       try {
+         let PMchatBotStatus = await mkchar.findOne({ id: "1" });
+         if (PMchatBotStatus) {
+           PMcsts = PMchatBotStatus.PMchatBot || "false";
+         }
+       } catch (error) {
+         console.log("Erro ao verificar status do PMchatBot: " + error);
+       }
+   
+       if (!m.isGroup && PMcsts == "true" && !icmd && !isCmd) {
+         try {
+           const botreply = await axios.get(
+             `http://api.brainshop.ai/get?bid=174300&key=ugPE0tD90fafvu2N&uid=[uid]&msg=[${budy}]`
+           );
+           txt = `${botreply.data.cnt}`;
+           setTimeout(function () {
+             m.reply(txt);
+           }, 2200);
+         } catch (error) {
+           console.log("Erro na API do chatbot: " + error);
+         }
+       }
+   
+       //--------------------------------------------- NSFW Configuration -----------------------------------------------//
+   
+       let NSFWstatus = "false";
+       
+       try {
+         let nsfwstatus = await mk.findOne({ id: m.from });
+         if (nsfwstatus) {
+           NSFWstatus = nsfwstatus.switchNSFW || "false";
+         }
+       } catch (error) {
+         console.log("Erro ao verificar status NSFW: " + error);
+       }
+   
+       //---------------------------------------------- Group Banning Configuration --------------------------------------//
+   
+       let BANGCSTATUS = "false";
+       
+       try {
+         let banGCStatus = await mk.findOne({ id: m.from });
+         if (banGCStatus) {
+           BANGCSTATUS = banGCStatus.bangroup || "false";
+         }
+       } catch (error) {
+         console.log("Erro ao verificar status de ban do grupo: " + error);
+       }
+       
+       if (
+         BANGCSTATUS == "true" &&
+         budy != `${prefix}unbangc` &&
+         budy != `${prefix}unbangroup` &&
+         body.startsWith(prefix) &&
+         budy != `${prefix}support` &&
+         budy != `${prefix}supportgc` &&
+         budy != `${prefix}owner` &&
+         budy != `${prefix}mods` &&
+         budy != `${prefix}mod` &&
+         budy != `${prefix}modlist`
+       ) {
+         if (m.isGroup && !isOwner && modStatus == "false") {
+           return m.reply(
+             `*${global.botName}* está *Banido* no grupo *${groupName}*! \n\nDigite *${prefix}owner* para enviar uma solicitação para desbanir o grupo!`
+           );
+         }
+       }
+   
+       //----------------------------------------------------------------------------------------------------------------//
+   
+       const flags = args.filter((arg) => arg.startsWith("--"));
+       if (body.startsWith(prefix) && !icmd) {
+         let Yakatext = `*${pushname}* bakaa! Nenhum comando encontrado!!\n\nDigite *${prefix}help* para ver meus comandos!`;
+         const reactmxv = {
+           react: {
+             text: '🙍🏻‍♀️',
+             key: m.key,
+           },
+         };
+         await Yaka.sendMessage(m.from, reactmxv);
+   
+         Yaka.sendMessage(m.from, { video: { url: 'https://media.tenor.com/qvvKGZhH0ysAAAPo/anime-girl.mp4', }, caption: Yakatext, gifPlayback: true }, {
+           quoted: m,
+         });
+       }
+   
+       if (m.message) {
+         console.log(
+           chalk.white(chalk.bgRed("[ MENSAGEM ]")),
+           chalk.black(chalk.bgYellow(new Date())),
+           chalk.yellow(chalk.bgGrey(budy || m.mtype)) +
+           "\n" +
+           chalk.blue("=> De"),
+           chalk.red(pushname),
+           chalk.green(m.sender) + "\n" + chalk.blueBright("=> Em"),
+           chalk.white(m.isGroup ? m.from : "Chat Privado", m.chat)
+         );
+       }
+   
+       if (cmd) {
+         try {
+           const randomXp = Math.floor(Math.random() * 3) + 1; //Random amont of XP until the number you want + 1
+           const haslUp = await Levels.appendXp(m.sender, "bot", randomXp);
+         } catch (error) {
+           console.log("Erro ao adicionar XP: " + error);
+         }
+       }
+       
+       if (
+         text.endsWith("--info") ||
+         text.endsWith("--i") ||
+         text.endsWith("--?")
+       ) {
+         let data = [];
+         if (cmd.alias) data.push(`*Alias :* ${cmd.alias.join(", ")}`);
+   
+         if (cmd.desc) data.push(`*Descrição :* ${cmd.desc}\n`);
+         if (cmd.usage)
+           data.push(
+             `*Exemplo :* ${cmd.usage
+               .replace(/%prefix/gi, prefix)
+               .replace(/%command/gi, cmd.name)
+               .replace(/%text/gi, text)}`
+           );
+   
+         let buttonmess = {
+           text: `*Informação do Comando*\n\n${data.join("\n")}`,
+         };
+         let reactionMess = {
+           react: {
+             text: cmd.react,
+             key: m.key,
+           },
+         };
+         await Yaka.sendMessage(m.from, reactionMess).then(() => {
+           return Yaka.sendMessage(m.from, buttonmess, {
+             quoted: m,
+           });
+         });
+       }
+       
+       if (cmd.react) {
+         const reactm = {
+           react: {
+             text: cmd.react,
+             key: m.key,
+           },
+         };
+         await Yaka.sendMessage(m.from, reactm);
+       }
+       
+       if (!cool.has(m.sender)) {
+         cool.set(m.sender, new Collection());
+       }
+       
+       const now = Date.now();
+       const timestamps = cool.get(m.sender);
+       const cdAmount = (cmd.cool || 0) * 1000;
+   
+       if (!isOwner && modStatus == "false" && !botNumber.includes(m.sender)) {
+         if (timestamps.has(m.sender)) {
+           const expiration = timestamps.get(m.sender) + cdAmount;
+   
+           if (now < expiration) {
+             let timeLeft = (expiration - now) / 1000;
+             return await Yaka.sendMessage(
+               m.from,
+               {
+                 text: `Não faça spam! Você pode usar o comando após _${timeLeft.toFixed(1)} segundo(s)_`,
+               },
+               {
+                 quoted: m,
+               }
+             );
+           }
+         }
+       }
+       
+       timestamps.set(m.sender, now);
+       setTimeout(() => timestamps.delete(m.sender), cdAmount);
+   
+       // FIX: Passar o messageText e fullText para o comando
+       cmd.start(Yaka, m, {
+         name: "Yaka",
+         metadata,
+         pushName: pushname,
+         participants,
+         body,
+         messageText,  // Novo parâmetro
+         fullText: messageText,  // Novo parâmetro
+         args,
+         ar,
+         groupName,
+         botNumber,
+         flags,
+         isAdmin,
+         groupAdmin,
+         text,
+         quoted,
+         mentionByTag,
+         mime,
+         isBotAdmin,
+         prefix,
+         modStatus,
+         NSFWstatus,
+         isCreator,
+         store,
+         uptime,
+         command: cmd.name,
+         commands,
+         Function: Func,
+         toUpper: function toUpper(query) {
+           return query.replace(/^\w/, (c) => c.toUpperCase());
+         },
+       });
+     } catch (e) {
+       e = String(e);
+       if (!e.includes("cmd.start")) console.error(e);
+     }
+   };
+
+
+
+
+
+
+
+
+
+   =============================================================================
+   ============================================================
+   PINTERSET DO CODIGO 
+
+
+   const puppeteer = require("puppeteer");
+
+class PinterestImageScraper {
+  constructor() {
+    this.browserInstances = [];
+    this.maxBrowsers = 5; // Número máximo de instâncias de navegador simultâneas
+    this.imagemCache = {}; // Cache de imagens por termo
+    this.loginCredentials = {
+      email: "brunoruthes92@gmail.com",
+      password: "BRPO@hulk1"
+    };
+
+    // Mapeamentos de termos curtos e URLs
+    this.shortToFullTerm = {
+      sung: "sung jinwoo monster",
+      solo: "solo leveling",
+      goth: "cute goth girl pfp",
+      girlpfp: "girl animes pfp",
+      malepfp: "male animes pfp",
+      girlart: "girl art wallpaper",
+      samurai: "girl art samurai wallpaper",
+      femaleart: "female artwork art",
+      maleart: "male artwork art",
+      kimetsu: "kimetsu no yaiba wallpaper",
+      nezuko: "nezuko wallpaper cute",
+      tanjiro: "tanjiro kamado wallpaper",
+      bachira: "bachira meguru wallpaper",
+      gojo: "gojo satoru",
+      tojiblack: "toji black",
+    };
+
+    this.termToUrl = {
+      "sung jinwoo monster": "https://br.pinterest.com/search/pins/?q=Sung%20Jinwoo%20monster&rs=typed",
+      // ... (restante dos mapeamentos de URL)
+    };
+  }
+
+  // Gerencia criação e fechamento de navegadores
+  async acquireBrowser() {
+    // Se já temos o número máximo de navegadores, espera um ser liberado
+    while (this.browserInstances.length >= this.maxBrowsers) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    try {
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      });
+      
+      const instanceId = this.browserInstances.length;
+      this.browserInstances.push({ browser, inUse: true, id: instanceId });
+      
+      return { browser, instanceId };
+    } catch (error) {
+      console.error("[ERRO] Falha ao criar navegador:", error);
+      throw error;
+    }
+  }
+
+  // Libera um navegador específico
+  releaseBrowser(instanceId) {
+    const instance = this.browserInstances.find(i => i.id === instanceId);
+    if (instance) {
+      instance.inUse = false;
+      try {
+        instance.browser.close();
+      } catch (error) {
+        console.error("[ERRO] Falha ao fechar navegador:", error);
+      }
+      
+      // Remove a instância do array
+      this.browserInstances = this.browserInstances.filter(i => i.id !== instanceId);
+    }
+  }
+
+  // Login seguro com tratamento de erros
+  async safeLogin(page) {
+    try {
+      await page.goto("https://www.pinterest.com/login/", { 
+        waitUntil: "networkidle2", 
+        timeout: 40000 
+      });
+
+      // Tratamento de cookies
+      try {
+        await page.waitForSelector('button[data-test-id="accept-cookies-button"]', { timeout: 7000 });
+        await page.click('button[data-test-id="accept-cookies-button"]');
+      } catch {
+        console.log("[LOG] Modal de cookies não apareceu");
+      }
+
+      // Seletores flexíveis para email
+      const emailSelectors = ['input[name="id"]', 'input[id="email"]', 'input[name="username"]', 'input[type="email"]'];
+      let emailSelector = null;
+
+      for (const sel of emailSelectors) {
+        try {
+          await page.waitForSelector(sel, { timeout: 5000 });
+          emailSelector = sel;
+          break;
+        } catch {}
+      }
+
+      if (!emailSelector) {
+        throw new Error("Não foi possível encontrar campo de email");
+      }
+
+      // Login com delay para evitar bloqueios
+      await page.click(emailSelector);
+      await page.type(emailSelector, this.loginCredentials.email, { delay: 50 });
+
+      const passwordSelector = 'input[name="password"]';
+      await page.waitForSelector(passwordSelector, { timeout: 15000 });
+      await page.click(passwordSelector);
+      await page.type(passwordSelector, this.loginCredentials.password, { delay: 50 });
+
+      // Submissão do formulário com timeout e verificação
+      await Promise.all([
+        page.click('button[type="submit"]'),
+        page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 }),
+      ]);
+
+      // Verifica se o login foi bem-sucedido
+      if (page.url().includes("/login")) {
+        throw new Error("Falha no login: credenciais inválidas ou bloqueio do Pinterest");
+      }
+
+      return true;
+    } catch (error) {
+      console.error("[ERRO] Erro no login:", error);
+      throw error;
+    }
+  }
+
+  // Método para buscar imagens com tratamento de erros e timeout
+  async searchImages(searchTerm, isCustomSearch = false) {
+    const startTime = Date.now();
+    const TIMEOUT = 2 * 60 * 1000; // 2 minutos
+    let browserInstance = null;
+
+    try {
+      // Verifica se já temos imagens em cache
+      const cachedImage = this.getUniqueImage(searchTerm);
+      if (cachedImage) {
+        return cachedImage;
+      }
+
+      // Adquire uma instância de navegador
+      browserInstance = await this.acquireBrowser();
+      const page = await browserInstance.browser.newPage();
+      
+      // Configura user agent
+      await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+      );
+
+      // Login
+      await this.safeLogin(page);
+
+      // URL de pesquisa
+      const encodedQuery = encodeURIComponent(searchTerm);
+      const searchUrl = isCustomSearch 
+        ? `https://br.pinterest.com/search/pins/?q=${encodedQuery}`
+        : this.termToUrl[searchTerm];
+
+      // Navega para a página de resultados
+      await page.goto(searchUrl, { 
+        waitUntil: "networkidle0", 
+        timeout: 30000 
+      });
+
+      // Scroll para carregar mais imagens
+      await page.evaluate(() => {
+        window.scrollBy(0, window.innerHeight * 3);
+        return new Promise(r => setTimeout(r, 1000));
+      });
+
+      // Extrai imagens
+      const imgs = await page.evaluate(() => {
+        const extractBestUrl = (img) => {
+          if (img.getAttribute("srcset")) {
+            const srcset = img.getAttribute("srcset");
+            const urls = srcset
+              .split(",")
+              .map((s) => s.trim().split(" ")[0])
+              .filter((u) => u.includes("originals") || u.includes("474x") || u.includes("236x"));
+            for (const url of urls) {
+              if (url.includes("originals")) return url;
+            }
+            return urls.length ? urls[urls.length - 1] : null;
+          }
+          return img.getAttribute("src");
+        };
+
+        const selectors = [
+          'img[srcset*="originals"]',
+          "img[srcset]",
+          'img[src*="pinimg.com"]',
+          "img[src]",
+        ];
+
+        let imgs = [];
+        for (const sel of selectors) {
+          imgs = Array.from(document.querySelectorAll(sel));
+          if (imgs.length > 10) break;
+        }
+
+        // Filtra URLs para pegar imagens com largura mínima 400px
+        const filteredUrls = imgs
+          .map(extractBestUrl)
+          .filter((url) => {
+            if (!url) return false;
+            const match = url.match(/(\d+)x(\d+)/);
+            if (!match) return true;
+            const width = parseInt(match[1], 10);
+            return width >= 400;
+          })
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .slice(0, 50);
+
+        return filteredUrls;
+      });
+
+      // Fecha a página
+      await page.close();
+
+      // Libera o navegador
+      this.releaseBrowser(browserInstance.instanceId);
+
+      // Verifica se encontrou imagens
+      if (!imgs || !imgs.length) {
+        throw new Error(`Nenhuma imagem encontrada para "${searchTerm}"`);
+      }
+
+      // Atualiza cache e obtém imagem única
+      const randomImg = this.getUniqueImage(searchTerm, imgs);
+
+      return randomImg;
+
+    } catch (error) {
+      console.error("[ERRO] Busca de imagens:", error);
+      
+      // Garante fechamento do navegador em caso de erro
+      if (browserInstance) {
+        try {
+          this.releaseBrowser(browserInstance.instanceId);
+        } catch {}
+      }
+
+      throw error;
+
+    } finally {
+      // Verifica se excedeu o tempo máximo
+      const duration = Date.now() - startTime;
+      if (duration > TIMEOUT) {
+        console.warn(`[AVISO] Busca de imagens demorou ${duration}ms`);
+      }
+    }
+  }
+
+  // Gerencia cache de imagens para evitar repetições
+  getUniqueImage(termo, imagens = null) {
+    // Inicializa cache para o termo se não existir
+    if (!this.imagemCache[termo]) {
+      this.imagemCache[termo] = {
+        urls: [],
+        enviadas: {}
+      };
+    }
+    
+    const cache = this.imagemCache[termo];
+    
+    // Adiciona novas imagens ao cache
+    if (imagens && imagens.length > 0) {
+      const novasImagens = [...imagens].sort(() => Math.random() - 0.5);
+      cache.urls = novasImagens;
+    }
+    
+    // Sem imagens no cache
+    if (!cache.urls.length) {
+      return null;
+    }
+    
+    // Busca imagem não enviada recentemente
+    for (let i = 0; i < 10; i++) {
+      const indice = Math.floor(Math.random() * cache.urls.length);
+      const imagem = cache.urls[indice];
+      
+      if (!cache.enviadas[imagem]) {
+        // Marca como enviada
+        cache.enviadas[imagem] = true;
+        
+        // Limita histórico de imagens enviadas
+        if (Object.keys(cache.enviadas).length > 15) {
+          const primeiraChave = Object.keys(cache.enviadas)[0];
+          delete cache.enviadas[primeiraChave];
+        }
+        
+        return imagem;
+      }
+    }
+    
+    // Caso todas as tentativas falhem, retorna imagem aleatória
+    const indiceAleatorio = Math.floor(Math.random() * cache.urls.length);
+    return cache.urls[indiceAleatorio];
+  }
+
+  // Método principal para compatibilidade com módulo original
+  async handlePinterestCommand(Yaka, m, { args, body, prefix }) {
+    try {
+      // Verifica se é comando .pinterest para busca personalizada
+      const isPintSearch = body && body.toLowerCase().startsWith('.pinterest');
+      
+      if (isPintSearch) {
+        const searchQuery = body.slice(10).trim();
+        
+        if (!searchQuery) {
+          return Yaka.sendMessage(m.from, { 
+            text: "❌ Digite um termo para pesquisar depois de .pinterest" 
+          }, { quoted: m });
+        }
+        
+        await Yaka.sendMessage(m.from, { 
+          text: `🔍 Buscando imagens para "${searchQuery}"...` 
+        }, { quoted: m });
+        
+        const randomImg = await this.searchImages(searchQuery, true);
+        
+        await Yaka.sendMessage(
+          m.from,
+          { image: { url: randomImg }, caption: `✨ Imagem HD: ${searchQuery}` },
+          { quoted: m }
+        );
+        
+        return;
+      }
+      
+      // Comando .pin com termos curtos
+      if (!args.length) {
+        const termosList = Object.keys(this.shortToFullTerm)
+          .map(key => `• ${key}`)
+          .join("\n");
+        return Yaka.sendMessage(m.from, { 
+          text: `📌 *Termos disponíveis:*\n\n${termosList}\n\n*Uso:* .pin <termo>` 
+        }, { quoted: m });
+      }
+
+      const shortTerm = args[0].toLowerCase();
+
+      if (!this.shortToFullTerm[shortTerm]) {
+        return Yaka.sendMessage(m.from, { 
+          text: `❌ Termo curto inválido: ${shortTerm}` 
+        }, { quoted: m });
+      }
+
+      const fullTerm = this.shortToFullTerm[shortTerm];
+      
+      await Yaka.sendMessage(m.from, { 
+        text: `🔍 Buscando imagens para "${fullTerm}"...` 
+      }, { quoted: m });
+      
+      const randomImg = await this.searchImages(fullTerm);
+      
+      await Yaka.sendMessage(
+        m.from,
+        { image: { url: randomImg }, caption: `✨ Imagem HD: ${fullTerm}` },
+        { quoted: m }
+      );
+
+    } catch (error) {
+      console.error("[ERRO] Comando Pinterest:", error);
+      await Yaka.sendMessage(m.from, { 
+        text: "❌ Erro ao buscar imagem. Tente novamente mais tarde." 
+      }, { quoted: m });
+    }
+  }
+}
+
+// Exporta uma instância do scraper
+const pinterestScraper = new PinterestImageScraper();
+
+module.exports = {
+  name: "pinterest",
+  alias: ["pin"],
+  desc: "Busca Pinterest imagens com termos curtos e login seguro",
+  category: "Search",
+  usage: "pin <termo curto> ou .pinterest <termo personalizado>",
+  react: "🖼️",
+  start: async (Yaka, m, { args, body, prefix }) => {
+    await pinterestScraper.handlePinterestCommand(Yaka, m, { args, body, prefix });
+  },
+};

@@ -1,0 +1,10 @@
+[2025-05-18T18:21:44.003Z] [120363418958833738@g.us] Solicitação .add de 556584660212@s.whatsapp.net; alvo(s): 556993753521@s.whatsapp.net
+[2025-05-18T18:21:44.788Z] 556993753521@s.whatsapp.net → status 403
+[2025-05-18T18:22:11.388Z] [120363418958833738@g.us] Solicitação .add de 556584660212@s.whatsapp.net; alvo(s): 556993753521@s.whatsapp.net
+[2025-05-18T18:22:12.112Z] 556993753521@s.whatsapp.net → status 403
+[2025-05-18T18:22:55.743Z] Grupo 120363418958833738@g.us | Solicit.: 556584660212@s.whatsapp.net | Alvos: 556993753521@s.whatsapp.net
+[2025-05-18T18:22:55.743Z] Tentando adicionar 556993753521@s.whatsapp.net…
+[2025-05-18T18:22:56.605Z] 556993753521@s.whatsapp.net → status 403
+[2025-05-18T18:23:21.102Z] Grupo 120363418958833738@g.us | Solicit.: 556584660212@s.whatsapp.net | Alvos: 556993753521@s.whatsapp.net
+[2025-05-18T18:23:21.103Z] Tentando adicionar 556993753521@s.whatsapp.net…
+[2025-05-18T18:23:21.929Z] 556993753521@s.whatsapp.net → status 403

@@ -1,0 +1,82 @@
+app = 'animebot72'
+primary_region = 'gru'
+
+[build]
+  dockerfile = "Dockerfile"
+  ignorefile = ".flyignore"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
+  PUPPETEER_EXECUTABLE_PATH = "/usr/bin/google-chrome-stable"
+  CHROME_BIN = "/usr/bin/google-chrome-stable"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false          # 🔥 NUNCA PARA!
+  auto_start_machines = true          # 🔥 SEMPRE INICIA!
+  min_machines_running = 1            # 🔥 MÍNIMO 1 SEMPRE RODANDO!
+  processes = ['app']
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 100
+    soft_limit = 80
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+
+[processes]
+  app = "pm2-runtime start ecosystem.config.js --env production"
+
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+# 🔥 CONFIGURAÇÕES 24/7 NUNCA DORMIR
+[[services]]
+  protocol = "tcp"
+  internal_port = 3000
+  auto_stop_machines = false          # 🔥 NUNCA PARA AS MÁQUINAS!
+  auto_start_machines = true          # 🔥 SEMPRE INICIA!
+  min_machines_running = 1            # 🔥 SEMPRE 1 RODANDO!
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 100
+    soft_limit = 80
+
+  # 🔥 HEALTH CHECKS PARA MANTER VIVO 24/7
+  [[services.tcp_checks]]
+    interval = "30s"                   # 🔥 VERIFICA A CADA 30s
+    timeout = "10s"
+    grace_period = "10s"
+    restart_limit = 0                  # 🔥 RESTART ILIMITADO
+
+  [[services.http_checks]]
+    interval = "30s"                   # 🔥 VERIFICA A CADA 30s  
+    timeout = "10s"
+    grace_period = "10s"
+    restart_limit = 0                  # 🔥 RESTART ILIMITADO
+    method = "get"
+    path = "/"
+    protocol = "http"
+
+# 🔥 CONFIGURAÇÕES EXTRAS PARA NUNCA DORMIR
+[deploy]
+  strategy = "immediate"
+
+[experimental]
+  auto_rollback = true
