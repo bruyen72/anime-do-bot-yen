@@ -156,4 +156,4 @@ if (require.main === module) {
   main().catch(console.error);
 }
 
-module.exports = { installChrome, installFFmpeg, checkChrome };
+module.exports = { installChrome, checkChrome };
