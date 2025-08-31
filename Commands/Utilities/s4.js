@@ -283,8 +283,10 @@ async function handleStickerCommand(sock, msg, sendMessage) {
     }
 
   } catch (error) {
-    StickerLogger.error(`Erro geral: ${error.message}`);
-    await sendMessage(msg.key.remoteJid, '*[❎]* Erro ao processar o sticker!');
+    console.error('--- [s4.js] ERRO DENTRO DE handleStickerCommand ---');
+    console.error(error);
+    StickerLogger.error(`Erro geral: ${error.stack}`);
+    await sendMessage(msg.key.remoteJid, `*[❎]* Erro ao processar o sticker! Detalhes: ${error.message}`);
   } finally {
     // Limpeza de arquivos temporários
     const cleanup = async (path) => {
@@ -314,10 +316,19 @@ module.exports = {
   usage: ".s4 [responda uma imagem ou vídeo]",
   react: "🎨",
   start: async (Yaka, m, { quoted }) => {
+    console.log('--- [s4.js] Comando .s4 iniciado ---');
     const sendMessage = async (chatId, text) => {
       await Yaka.sendMessage(chatId, { text }, { quoted: m });
     };
 
-    await handleStickerCommand(Yaka, m, sendMessage);
+    try {
+      console.log('--- [s4.js] Chamando handleStickerCommand ---');
+      await handleStickerCommand(Yaka, m, sendMessage);
+      console.log('--- [s4.js] handleStickerCommand concluído com sucesso ---');
+    } catch (e) {
+      console.error('--- [s4.js] ERRO GRAVE NO COMANDO .S4 ---');
+      console.error(e);
+      await sendMessage(m.key.remoteJid, '❌ Ocorreu um erro crítico no comando .s4. Verifique os logs.');
+    }
   }
 };
