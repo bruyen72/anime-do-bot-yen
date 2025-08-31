@@ -29,6 +29,7 @@
   - 🎯 Extração de frames em posição específica  
   - 🔧 Configurações para vídeos do WhatsApp
 - **Resultado:** s4.js extrai frames REAIS de vídeos!
+- **TESTADO:** ✅ FFmpeg.exe detectado, streaming funcionando, fallback visual perfeito
 
 ### 🔧 **Sistema de instalação automática**
 - **Arquivo:** `install-chrome.js` (novo)
