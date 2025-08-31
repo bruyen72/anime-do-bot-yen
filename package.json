@@ -9,8 +9,9 @@
     "dev": "node --max-old-space-size=6144 index.js", 
     "build": "npm install --production --no-optional", 
     "prestart": "echo '🚀 Iniciando YakaBot...'", 
-    "postinstall": "echo '✅ Instalação concluída' && ./build-setup.sh || npx puppeteer browsers install chrome || echo '⚠️ Chrome install failed, will use system Chrome'",
-    "heroku-postbuild": "./build-setup.sh || echo '⚠️ Build setup failed'" 
+    "postinstall": "echo '✅ Instalação concluída' && node install-chrome.js || echo '⚠️ Instalação automática falhou'",
+    "heroku-postbuild": "node install-chrome.js",
+    "setup": "node install-chrome.js" 
   }, 
   "repository": { 
     "type": "git", 

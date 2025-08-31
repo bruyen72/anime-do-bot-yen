@@ -4,6 +4,7 @@ const { tmpdir } = require('os');
 const { spawn, execSync } = require('child_process');
 const fileType = require('file-type');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+const smartStickerConverter = require('../../lib/SmartStickerConverter');
 
 // ==================== CONFIGURAÇÕES OTIMIZADAS ====================
 const MAX_STICKER_SIZE = 512;
@@ -375,6 +376,22 @@ module.exports = {
                 } catch (ffmpegError) {
                     console.log(`[⚠️] Processamento FFmpeg falhou: ${ffmpegError.message}`);
                     processingMethod += ' (FFmpeg falhou)';
+                    
+                    // FALLBACK IMEDIATO: SmartStickerConverter
+                    if (isImage && !finalBuffer) {
+                        try {
+                            console.log(`[🔄] Tentando SmartStickerConverter...`);
+                            finalBuffer = await smartStickerConverter.createSticker(buffer, {
+                                quality: settings.quality,
+                                width: settings.size,
+                                height: settings.size
+                            });
+                            processingMethod += ' → SmartConverter';
+                            console.log(`[✅] SmartStickerConverter sucesso: ${(finalBuffer.length/1024).toFixed(1)}KB`);
+                        } catch (smartError) {
+                            console.log(`[⚠️] SmartStickerConverter falhou: ${smartError.message}`);
+                        }
+                    }
                 }
             }
 
