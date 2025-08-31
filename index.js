@@ -148,7 +148,14 @@ const app = express();
 let status = 'initializing';
 let QR_GENERATE = "invalid";
 const AdvancedConnectionManager = require('./lib/AdvancedConnectionManager');
-let connectionManager = new AdvancedConnectionManager(logger);
+let connectionManager;
+try {
+    connectionManager = new AdvancedConnectionManager(logger);
+    console.log('✅ AdvancedConnectionManager inicializado');
+} catch (error) {
+    console.log('⚠️ Erro ao inicializar AdvancedConnectionManager:', error.message);
+    connectionManager = { getConnectionStatus: () => ({ reconnectAttempts: 0 }) };
+}
 
 // Estruturas de dados
 const cooldowns = new Map();
@@ -1180,7 +1187,7 @@ async function startYaka() {
                    system: {
                        load: loadBalancer.isHighLoad ? 'Alto' : 'Normal',
                        queueSize: heavyCommandQueue.length,
-                       reconnects: connectionManager.getConnectionStatus().reconnectAttempts,
+                       reconnects: connectionManager?.getConnectionStatus()?.reconnectAttempts || 0,
                        chrome: 'Ativo via Fly.io'
                    },
                    topCommands,
@@ -1276,7 +1283,11 @@ app.use(apiRateLimiter);
 // Rota principal - ESSENCIAL PARA FLY.IO
 app.get("/", (req, res) => {
    try {
-       const memUsage = memoryManager.getMemoryUsage();
+       // Verificações de segurança para Koyeb/produção
+       const memUsage = memoryManager?.getMemoryUsage() || { heapUsed: 0, heapTotal: 0 };
+       const safeLoadBalancer = loadBalancer || { commandsPending: 0, isHighLoad: false };
+       const safeHeavyCommandQueue = heavyCommandQueue || [];
+       const safeConnectionManager = connectionManager || { getConnectionStatus: () => ({ reconnectAttempts: 0 }) };
    
    res.send(`
 <!DOCTYPE html>
@@ -1374,14 +1385,14 @@ app.get("/", (req, res) => {
                <h3>⚡ Performance</h3>
                <p><strong>RAM:</strong> 8GB Configurados</p>
                <p><strong>CPU:</strong> 4 CPUs Ativas</p>
-               <p><strong>Carga:</strong> ${loadBalancer.isHighLoad ? 'Alta' : 'Normal'}</p>
+               <p><strong>Carga:</strong> ${safeLoadBalancer.isHighLoad ? 'Alta' : 'Normal'}</p>
            </div>
            
            <div class="card">
                <h3>🔧 Sistema</h3>
-               <p><strong>Comandos Ativos:</strong> ${loadBalancer.commandsPending}</p>
-               <p><strong>Fila:</strong> ${heavyCommandQueue.length}</p>
-               <p><strong>Reconexões:</strong> ${connectionManager?.getConnectionStatus()?.reconnectAttempts || 0}</p>
+               <p><strong>Comandos Ativos:</strong> ${safeLoadBalancer.commandsPending}</p>
+               <p><strong>Fila:</strong> ${safeHeavyCommandQueue.length}</p>
+               <p><strong>Reconexões:</strong> ${safeConnectionManager.getConnectionStatus().reconnectAttempts}</p>
            </div>
        </div>
        
@@ -1457,11 +1468,15 @@ app.get("/status", (req, res) => {
            });
        }
        
-       const memUsage = memoryManager.getMemoryUsage();
+       const memUsage = memoryManager?.getMemoryUsage() || { heapUsed: 0, heapTotal: 0 };
+       const safeLoadBalancer = loadBalancer || { commandsPending: 0, isHighLoad: false };
+       const safeHeavyCommandQueue = heavyCommandQueue || [];
+       const safeConnectionManager = connectionManager || { getConnectionStatus: () => ({ reconnectAttempts: 0 }) };
+       
        res.json({
            status: status || "unknown",
            uptime: formatUptime(process.uptime()),
-           memory: `${memUsage.heapUsed}MB / ${MAX_MEMORY_MB}MB (${Math.round(memUsage.heapUsed/MAX_MEMORY_MB*100)}%)`,
+           memory: `${memUsage.heapUsed}MB / ${MAX_MEMORY_MB || 6144}MB (${Math.round(memUsage.heapUsed/(MAX_MEMORY_MB || 6144)*100)}%)`,
            chrome: {
                status: "active",
                gui_port: 8080,
@@ -1469,15 +1484,15 @@ app.get("/status", (req, res) => {
                downloads: "enabled"
            },
            connections: {
-               groups: groupCache.size,
-               users: userCache.size,
-               commands: Commands.size
+               groups: (groupCache?.size || 0),
+               users: (userCache?.size || 0),
+               commands: (Commands?.size || 0)
            },
            performance: {
-               load: loadBalancer.isHighLoad ? 'Alto' : 'Normal',
-               activeCommands: loadBalancer.commandsPending,
-               queueSize: heavyCommandQueue.length,
-               reconnects: connectionManager.getConnectionStatus().reconnectAttempts
+               load: safeLoadBalancer.isHighLoad ? 'Alto' : 'Normal',
+               activeCommands: safeLoadBalancer.commandsPending,
+               queueSize: safeHeavyCommandQueue.length,
+               reconnects: safeConnectionManager.getConnectionStatus().reconnectAttempts
            },
            timestamp: new Date().toISOString()
        });
