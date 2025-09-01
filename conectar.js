@@ -20,29 +20,36 @@ async function startConnection() {
         level: 'fatal'
     });
 
-    // Agente HTTPS para ignorar problemas de certificado (solução para 'Media upload failed')
+    // Agente HTTPS melhorado para problemas de upload
     const agent = new https.Agent({
         rejectUnauthorized: false,
         keepAlive: true,
-        timeout: 60000 // 60 segundos de timeout
+        keepAliveMsecs: 30000,
+        timeout: 120000, // 2 minutos
+        maxSockets: 50,
+        maxFreeSockets: 10
     });
 
-    // Criar conexão
+    // Criar conexão com configurações otimizadas
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
         logger,
         browser: ['YakaBot', 'Chrome', '116.0.0.0'],
         syncFullHistory: false,
-        agent: agent, // Adiciona o agente HTTPS
+        agent: agent,
+        // Configurações de timeout estendidas
+        defaultQueryTimeoutMs: 120000, // 2 minutos
+        connectTimeoutMs: 60000, // 1 minuto para conectar
+        // Configurações de retry
+        retryRequestDelayMs: 3000,
+        maxMsgRetryCount: 5,
+        // Configurações de upload específicas
         options: {
-            // Configurações de upload aprimoradas
-            mediaUploadTimeoutMs: 180000, // 3 minutos
-            retryRequestDelayMs: 5000,
-            maxRetries: 5
-        },
-        // Aumentar timeout para uploads
-        defaultQueryTimeoutMs: 60000
+            mediaUploadTimeoutMs: 300000, // 5 minutos
+            retryRequestDelayMs: 3000,
+            maxRetries: 3
+        }
     });
 
     // Manipular eventos de conexão
