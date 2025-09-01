@@ -15,7 +15,8 @@
       "Bash(npm test)",
       "Read(//**)",
       "Read(//**)",
-      "Read(//**)"
+      "Read(//**)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []

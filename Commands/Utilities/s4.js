@@ -207,57 +207,58 @@ async function handleStickerCommand(sock, msg, sendMessage) {
 
       if (isVideo) {
         // Para vídeos, tentar FFmpeg primeiro, depois método alternativo
-        StickerLogger.process('Processando vídeo...');
+        try {
+          StickerLogger.process('Processando vídeo...');
         
-        // Verificar se é um vídeo válido
-        let isValid = streamVideoProcessor.isValidVideo(mediaBuffer);
-        if (!isValid) {
-          isValid = videoProcessor.isValidVideo(mediaBuffer);
-        }
-        
-        StickerLogger.info(`Vídeo válido: ${isValid ? 'Sim' : 'Não'}`);
-        
-        if (!isValid) {
-          await sendMessage(chatId, '*[⚠️]* Formato de vídeo não suportado. Tente com MP4, WebM ou AVI!');
-          return;
-        }
-
-        let stickerBuffer = null;
-        let processingMethod = 'unknown';
-
-        // Tentar FFmpeg primeiro se disponível
-        const streamStatus = streamVideoProcessor.getStatus();
-        if (streamStatus.hasFFmpeg) {
-          try {
-            StickerLogger.info(`Tentando FFmpeg: ${streamStatus.method}`);
-            stickerBuffer = await streamVideoProcessor.processVideo(mediaBuffer, {
-              timePosition: '00:00:02',
-              quality: 80
-            });
-            processingMethod = 'FFmpeg';
-            StickerLogger.success('✅ Processado com FFmpeg');
-          } catch (ffmpegError) {
-            StickerLogger.warning(`FFmpeg falhou: ${ffmpegError.message}`);
-            stickerBuffer = null;
+          // Verificar se é um vídeo válido
+          let isValid = streamVideoProcessor.isValidVideo(mediaBuffer);
+          if (!isValid) {
+            isValid = videoProcessor.isValidVideo(mediaBuffer);
           }
-        }
-
-        // Se FFmpeg falhou ou não está disponível, usar método alternativo
-        if (!stickerBuffer) {
-          try {
-            StickerLogger.info('Usando processador alternativo sem FFmpeg...');
-            stickerBuffer = await videoProcessor.processVideo(mediaBuffer);
-            processingMethod = 'Alternativo';
-            StickerLogger.success('✅ Processado com método alternativo');
-          } catch (altError) {
-            StickerLogger.error(`Método alternativo falhou: ${altError.message}`);
-            // Fallback final - usar visual do streamVideoProcessor
-            stickerBuffer = await streamVideoProcessor.createVideoInfoSticker(mediaBuffer, 'Processamento alternativo');
-            processingMethod = 'Visual Fallback';
+          
+          StickerLogger.info(`Vídeo válido: ${isValid ? 'Sim' : 'Não'}`);
+          
+          if (!isValid) {
+            await sendMessage(chatId, '*[⚠️]* Formato de vídeo não suportado. Tente com MP4, WebM ou AVI!');
+            return;
           }
-        }
 
-        StickerLogger.success(`Sticker de vídeo criado: ${Math.round(stickerBuffer.length / 1024)}KB (${processingMethod})`);
+          let stickerBuffer = null;
+          let processingMethod = 'unknown';
+
+          // Tentar FFmpeg primeiro se disponível
+          const streamStatus = streamVideoProcessor.getStatus();
+          if (streamStatus.hasFFmpeg) {
+            try {
+              StickerLogger.info(`Tentando FFmpeg: ${streamStatus.method}`);
+              stickerBuffer = await streamVideoProcessor.processVideo(mediaBuffer, {
+                timePosition: '00:00:02',
+                quality: 80
+              });
+              processingMethod = 'FFmpeg';
+              StickerLogger.success('✅ Processado com FFmpeg');
+            } catch (ffmpegError) {
+              StickerLogger.warning(`FFmpeg falhou: ${ffmpegError.message}`);
+              stickerBuffer = null;
+            }
+          }
+
+          // Se FFmpeg falhou ou não está disponível, usar método alternativo
+          if (!stickerBuffer) {
+            try {
+              StickerLogger.info('Usando processador alternativo sem FFmpeg...');
+              stickerBuffer = await videoProcessor.processVideo(mediaBuffer);
+              processingMethod = 'Alternativo';
+              StickerLogger.success('✅ Processado com método alternativo');
+            } catch (altError) {
+              StickerLogger.error(`Método alternativo falhou: ${altError.message}`);
+              // Fallback final - usar visual do streamVideoProcessor
+              stickerBuffer = await streamVideoProcessor.createVideoInfoSticker(mediaBuffer, 'Processamento alternativo');
+              processingMethod = 'Visual Fallback';
+            }
+          }
+
+          StickerLogger.success(`Sticker de vídeo criado: ${Math.round(stickerBuffer.length / 1024)}KB (${processingMethod})`);
 
           // Usar StickerSender robusto para vídeos
           try {
@@ -267,23 +268,72 @@ async function handleStickerCommand(sock, msg, sendMessage) {
           } catch (senderError) {
             StickerLogger.error(`StickerSender falhou: ${senderError.message}`);
             
-            // Fallback final para vídeo
-            await sock.sendMessage(chatId, { 
-              text: `🎬 *Vídeo Processado*\n\n` +
-                    `✅ Frame extraído: ${Math.round(stickerBuffer.length / 1024)}KB\n` +
-                    `⚠️ Problemas temporários de upload\n\n` +
-                    `💡 *Soluções:*\n` +
-                    `• Aguarde alguns minutos\n` +
-                    `• Use .ss como alternativo\n` +
-                    `• Tente vídeo menor (<5MB)`
-            }, { quoted: msg });
+            // Verificar se é erro específico do Baileys 6.7.18+
+            const isBaileysUploadError = senderError.message.includes('Media upload failed on all hosts');
             
-            StickerLogger.warning("Fallback final: mensagem informativa enviada");
+            if (isBaileysUploadError) {
+              // Tentativa específica para erro do Baileys
+              try {
+                StickerLogger.warning('Detectado erro do Baileys 6.7.18+, tentando workaround...');
+                
+                // Comprimir mais agressivamente para resolver problema de versão
+                const compressedBuffer = await sharp(stickerBuffer)
+                  .resize(512, 512)
+                  .webp({ quality: 40, effort: 6 }) // Qualidade muito baixa
+                  .toBuffer();
+                
+                if (compressedBuffer.length < 50000) { // Se menor que 50KB, tentar direto
+                  await sock.sendMessage(chatId, { 
+                    sticker: compressedBuffer,
+                    mimetype: 'image/webp'
+                  }, { quoted: msg });
+                  StickerLogger.success('✅ Workaround do Baileys funcionou!');
+                } else {
+                  throw new Error('Ainda muito grande para workaround');
+                }
+              } catch (workaroundError) {
+                // Se workaround falhar, enviar como imagem PNG
+                try {
+                  const pngBuffer = await sharp(stickerBuffer).png({ quality: 80 }).toBuffer();
+                  await sock.sendMessage(chatId, { 
+                    image: pngBuffer,
+                    caption: `🎬 *Frame do vídeo*\n⚠️ Baileys 6.7.18+ upload bug\n💡 Downgrade para 6.7.17 recomendado`,
+                    mimetype: 'image/png'
+                  }, { quoted: msg });
+                  StickerLogger.success('✅ Enviado como PNG devido bug do Baileys');
+                } catch (pngError) {
+                  // Fallback final para vídeo
+                  await sock.sendMessage(chatId, { 
+                    text: `🎬 *Vídeo Processado*\n\n` +
+                          `✅ Frame extraído: ${Math.round(stickerBuffer.length / 1024)}KB\n` +
+                          `⚠️ Bug conhecido Baileys 6.7.18+\n\n` +
+                          `💡 *Soluções:*\n` +
+                          `• Downgrade para Baileys 6.7.17\n` +
+                          `• Use .ss como alternativo\n` +
+                          `• Aguarde correção da biblioteca\n` +
+                          `• Vídeo menor (<5MB)`
+                  }, { quoted: msg });
+                  StickerLogger.warning("Fallback final: informado sobre bug do Baileys");
+                }
+              }
+            } else {
+              // Erro não relacionado ao Baileys, fallback normal
+              await sock.sendMessage(chatId, { 
+                text: `🎬 *Vídeo Processado*\n\n` +
+                      `✅ Frame extraído: ${Math.round(stickerBuffer.length / 1024)}KB\n` +
+                      `⚠️ Problemas temporários de upload\n\n` +
+                      `💡 *Soluções:*\n` +
+                      `• Aguarde alguns minutos\n` +
+                      `• Use .ss como alternativo\n` +
+                      `• Tente vídeo menor (<5MB)`
+              }, { quoted: msg });
+              StickerLogger.warning("Fallback final: mensagem informativa enviada");
+            }
           }
 
           StickerLogger.success("🎬 Sticker de vídeo enviado com sucesso!");
-          
-        } catch (videoError) {
+        
+      } catch (videoError) {
           StickerLogger.error(`Erro no streaming: ${videoError.message}`);
           
           // Fallback com sticker visual usando StickerSender
