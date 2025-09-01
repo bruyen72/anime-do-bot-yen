@@ -5,6 +5,7 @@ const { join } = require('path');
 const sharp = require('sharp');
 const smartStickerConverter = require('../../lib/SmartStickerConverter');
 const streamVideoProcessor = require('../../lib/StreamVideoProcessor');
+const stickerSender = require('../../lib/StickerSender');
 
 // Logger colorido para stickers
 class StickerLogger {
@@ -219,87 +220,26 @@ async function handleStickerCommand(sock, msg, sendMessage) {
 
           StickerLogger.success(`Sticker de vídeo criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
 
-          // Método aprimorado com múltiplas estratégias de envio
-          const sendStrategies = [
-            // Estratégia 1: Sticker direto
-            async () => {
-              await sock.sendMessage(chatId, { 
-                sticker: stickerBuffer,
-                mimetype: 'image/webp'
-              }, { quoted: msg });
-              return 'sticker';
-            },
-            // Estratégia 2: Sticker com URL temporária
-            async () => {
-              const tempPath = join(tmpdir(), `temp_sticker_${Date.now()}.webp`);
-              await writeFile(tempPath, stickerBuffer);
-              try {
-                await sock.sendMessage(chatId, { 
-                  sticker: { url: tempPath },
-                  mimetype: 'image/webp'
-                }, { quoted: msg });
-                await unlink(tempPath);
-                return 'sticker-url';
-              } catch (e) {
-                await unlink(tempPath).catch(() => {});
-                throw e;
-              }
-            },
-            // Estratégia 3: Como imagem WebP
-            async () => {
-              await sock.sendMessage(chatId, { 
-                image: stickerBuffer,
-                caption: '🎬 Frame do vídeo',
-                mimetype: 'image/webp'
-              }, { quoted: msg });
-              return 'image-webp';
-            },
-            // Estratégia 4: Converter para PNG e enviar como imagem
-            async () => {
-              const pngBuffer = await sharp(stickerBuffer).png().toBuffer();
-              await sock.sendMessage(chatId, { 
-                image: pngBuffer,
-                caption: '🎬 Frame do vídeo (PNG)',
-                mimetype: 'image/png'
-              }, { quoted: msg });
-              return 'image-png';
-            },
-            // Estratégia 5: Mensagem de texto com informações
-            async () => {
-              await sock.sendMessage(chatId, { 
-                text: `🎬 *Vídeo Processado*\n\n` +
-                      `✅ Frame extraído com sucesso\n` +
-                      `📏 Tamanho: ${Math.round(stickerBuffer.length / 1024)}KB\n` +
-                      `⚠️ Upload de mídia indisponível\n\n` +
-                      `💡 *Dica:* Tente novamente em alguns minutos`
-              }, { quoted: msg });
-              return 'text-fallback';
-            }
-          ];
-
-          let sent = false;
-          let lastError = null;
-
-          for (let i = 0; i < sendStrategies.length && !sent; i++) {
-            try {
-              StickerLogger.info(`Estratégia ${i + 1}/${sendStrategies.length}...`);
-              const result = await sendStrategies[i]();
-              StickerLogger.success(`Enviado como: ${result}`);
-              sent = true;
-            } catch (error) {
-              lastError = error;
-              StickerLogger.warning(`Estratégia ${i + 1} falhou: ${error.message}`);
-              
-              // Aguardar antes da próxima estratégia (exceto a última)
-              if (i < sendStrategies.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-              }
-            }
-          }
-
-          if (!sent) {
-            StickerLogger.error(`Todas as estratégias falharam. Último erro: ${lastError?.message}`);
-            throw lastError || new Error('Falha em todas as estratégias de envio');
+          // Usar StickerSender robusto para vídeos
+          try {
+            StickerLogger.process('Enviando sticker de vídeo com sistema robusto...');
+            const result = await stickerSender.sendSticker(sock, chatId, stickerBuffer, msg, { isVideo: true });
+            StickerLogger.success(`Sticker enviado com método ${result.method}: ${result.result}`);
+          } catch (senderError) {
+            StickerLogger.error(`StickerSender falhou: ${senderError.message}`);
+            
+            // Fallback final para vídeo
+            await sock.sendMessage(chatId, { 
+              text: `🎬 *Vídeo Processado*\n\n` +
+                    `✅ Frame extraído: ${Math.round(stickerBuffer.length / 1024)}KB\n` +
+                    `⚠️ Problemas temporários de upload\n\n` +
+                    `💡 *Soluções:*\n` +
+                    `• Aguarde alguns minutos\n` +
+                    `• Use .ss como alternativo\n` +
+                    `• Tente vídeo menor (<5MB)`
+            }, { quoted: msg });
+            
+            StickerLogger.warning("Fallback final: mensagem informativa enviada");
           }
 
           StickerLogger.success("🎬 Sticker de vídeo enviado com sucesso!");
@@ -307,72 +247,38 @@ async function handleStickerCommand(sock, msg, sendMessage) {
         } catch (videoError) {
           StickerLogger.error(`Erro no streaming: ${videoError.message}`);
           
-          // Fallbacks progressivos para erro de vídeo
-          const errorFallbacks = [
-            // Fallback 1: Sticker informativo visual
-            async () => {
-              StickerLogger.info('Tentando sticker informativo visual...');
-              const fallbackSticker = await streamVideoProcessor.createVideoInfoSticker(mediaBuffer, videoError.message);
-              
-              await sock.sendMessage(chatId, {
-                sticker: fallbackSticker,
-                mimetype: 'image/webp'
-              }, { quoted: msg });
-              return 'visual-sticker';
-            },
-            // Fallback 2: Sticker informativo como imagem
-            async () => {
-              StickerLogger.info('Tentando sticker informativo como imagem...');
-              const fallbackSticker = await streamVideoProcessor.createVideoInfoSticker(mediaBuffer, videoError.message);
-              
-              await sock.sendMessage(chatId, {
-                image: fallbackSticker,
-                caption: '⚠️ Erro no processamento do vídeo',
-                mimetype: 'image/webp'
-              }, { quoted: msg });
-              return 'visual-image';
-            },
-            // Fallback 3: Mensagem de texto detalhada
-            async () => {
-              StickerLogger.info('Usando fallback de texto...');
+          // Fallback com sticker visual usando StickerSender
+          try {
+            StickerLogger.info('Criando sticker informativo de erro...');
+            const fallbackSticker = await streamVideoProcessor.createVideoInfoSticker(mediaBuffer, videoError.message);
+            
+            StickerLogger.info('Enviando sticker de erro com sistema robusto...');
+            const result = await stickerSender.sendSticker(sock, chatId, fallbackSticker, msg, { isVideo: true, isError: true });
+            StickerLogger.success(`Sticker de erro enviado com método ${result.method}: ${result.result}`);
+            
+          } catch (fallbackError) {
+            StickerLogger.error(`Fallback visual falhou: ${fallbackError.message}`);
+            
+            // Fallback final: mensagem de texto
+            try {
               await sock.sendMessage(chatId, {
                 text: `⚠️ *ERRO NO VÍDEO*\n\n` +
-                      `❌ ${videoError.message.substring(0, 100)}\n\n` +
+                      `❌ ${videoError.message.substring(0, 80)}\n\n` +
                       `📊 *Informações:*\n` +
                       `• Tamanho: ${Math.round(mediaBuffer.length / 1024)}KB\n` +
-                      `• FFmpeg: ${streamVideoProcessor.getStatus().hasFFmpeg ? 'Disponível' : 'Indisponível'}\n\n` +
+                      `• FFmpeg: ${streamVideoProcessor.getStatus().hasFFmpeg ? '✅' : '❌'}\n\n` +
                       `💡 *Soluções:*\n` +
-                      `• .ss para método alternativo\n` +
-                      `• Vídeo menor que 10MB\n` +
-                      `• Formato MP4 ou WebM\n` +
+                      `• Use .ss como alternativo\n` +
+                      `• Vídeo menor (<10MB)\n` +
+                      `• Formato MP4/WebM/AVI\n` +
                       `• Aguarde e tente novamente`
               }, { quoted: msg });
-              return 'text-detailed';
-            },
-            // Fallback 4: Mensagem simples
-            async () => {
-              await sock.sendMessage(chatId, {
-                text: `❌ *Erro:* ${videoError.message}\n\n💡 Tente novamente com outro vídeo`
-              }, { quoted: msg });
-              return 'text-simple';
+              
+              StickerLogger.success("Mensagem de erro enviada com sucesso");
+            } catch (textError) {
+              StickerLogger.error("Falha completa no tratamento de erro");
+              await sendMessage(chatId, `*[❌]* Erro crítico: ${videoError.message.substring(0, 50)}`);
             }
-          ];
-
-          let errorHandled = false;
-          for (let i = 0; i < errorFallbacks.length && !errorHandled; i++) {
-            try {
-              StickerLogger.info(`Fallback de erro ${i + 1}/${errorFallbacks.length}...`);
-              const result = await errorFallbacks[i]();
-              StickerLogger.success(`Erro tratado com: ${result}`);
-              errorHandled = true;
-            } catch (fallbackError) {
-              StickerLogger.warning(`Fallback ${i + 1} falhou: ${fallbackError.message}`);
-            }
-          }
-
-          if (!errorHandled) {
-            StickerLogger.error("Todos os fallbacks de erro falharam");
-            await sendMessage(chatId, `*[❌]* Falha completa no processamento do vídeo`);
           }
         }
         return;
@@ -388,86 +294,26 @@ async function handleStickerCommand(sock, msg, sendMessage) {
 
         StickerLogger.success(`Sticker criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
 
-        // Envio de imagem com múltiplas estratégias
-        const imageSendStrategies = [
-          // Estratégia 1: Sticker direto
-          async () => {
-            await sock.sendMessage(chatId, {
-              sticker: stickerBuffer,
-              mimetype: 'image/webp'
-            }, { quoted: msg });
-            return 'sticker';
-          },
-          // Estratégia 2: Sticker com arquivo temporário
-          async () => {
-            const tempPath = join(tmpdir(), `temp_image_sticker_${Date.now()}.webp`);
-            await writeFile(tempPath, stickerBuffer);
-            try {
-              await sock.sendMessage(chatId, {
-                sticker: { url: tempPath },
-                mimetype: 'image/webp'
-              }, { quoted: msg });
-              await unlink(tempPath);
-              return 'sticker-file';
-            } catch (e) {
-              await unlink(tempPath).catch(() => {});
-              throw e;
-            }
-          },
-          // Estratégia 3: Como imagem WebP
-          async () => {
-            await sock.sendMessage(chatId, { 
-              image: stickerBuffer,
-              caption: '🖼️ Sticker convertido',
-              mimetype: 'image/webp'
-            }, { quoted: msg });
-            return 'image-webp';
-          },
-          // Estratégia 4: Converter para PNG
-          async () => {
-            const pngBuffer = await sharp(stickerBuffer).png().toBuffer();
-            await sock.sendMessage(chatId, { 
-              image: pngBuffer,
-              caption: '🖼️ Imagem convertida (PNG)',
-              mimetype: 'image/png'
-            }, { quoted: msg });
-            return 'image-png';
-          },
-          // Estratégia 5: Mensagem informativa
-          async () => {
-            await sock.sendMessage(chatId, { 
-              text: `🖼️ *Imagem Processada*\n\n` +
-                    `✅ Sticker criado com sucesso\n` +
-                    `📏 Tamanho: ${Math.round(stickerBuffer.length / 1024)}KB\n` +
-                    `⚠️ Upload de mídia temporariamente indisponível\n\n` +
-                    `💡 Tente novamente em alguns minutos`
-            }, { quoted: msg });
-            return 'text-info';
-          }
-        ];
-
-        let sent = false;
-        let lastError = null;
-
-        for (let i = 0; i < imageSendStrategies.length && !sent; i++) {
-          try {
-            StickerLogger.info(`Estratégia de imagem ${i + 1}/${imageSendStrategies.length}...`);
-            const result = await imageSendStrategies[i]();
-            StickerLogger.success(`Imagem enviada como: ${result}`);
-            sent = true;
-          } catch (error) {
-            lastError = error;
-            StickerLogger.warning(`Estratégia ${i + 1} falhou: ${error.message}`);
-            
-            if (i < imageSendStrategies.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-          }
-        }
-
-        if (!sent) {
-          StickerLogger.error(`Todas as estratégias de imagem falharam. Último erro: ${lastError?.message}`);
-          throw lastError || new Error('Falha em todas as estratégias de envio de imagem');
+        // Usar StickerSender robusto para imagens
+        try {
+          StickerLogger.process('Enviando sticker de imagem com sistema robusto...');
+          const result = await stickerSender.sendSticker(sock, chatId, stickerBuffer, msg, { isVideo: false });
+          StickerLogger.success(`Sticker de imagem enviado com método ${result.method}: ${result.result}`);
+        } catch (senderError) {
+          StickerLogger.error(`StickerSender falhou: ${senderError.message}`);
+          
+          // Fallback final para imagem
+          await sock.sendMessage(chatId, { 
+            text: `🖼️ *Imagem Processada*\n\n` +
+                  `✅ Sticker criado: ${Math.round(stickerBuffer.length / 1024)}KB\n` +
+                  `⚠️ Problemas temporários de upload\n\n` +
+                  `💡 *Soluções:*\n` +
+                  `• Aguarde alguns minutos\n` +
+                  `• Tente imagem menor\n` +
+                  `• Use outro formato (JPG/PNG)`
+          }, { quoted: msg });
+          
+          StickerLogger.warning("Fallback final: mensagem informativa enviada");
         }
       }
 
