@@ -22,7 +22,9 @@ async function startConnection() {
 
     // Agente HTTPS para ignorar problemas de certificado (solução para 'Media upload failed')
     const agent = new https.Agent({
-        rejectUnauthorized: false
+        rejectUnauthorized: false,
+        keepAlive: true,
+        timeout: 60000 // 60 segundos de timeout
     });
 
     // Criar conexão
@@ -32,7 +34,15 @@ async function startConnection() {
         logger,
         browser: ['YakaBot', 'Chrome', '116.0.0.0'],
         syncFullHistory: false,
-        agent: agent // Adiciona o agente HTTPS
+        agent: agent, // Adiciona o agente HTTPS
+        options: {
+            // Configurações de upload aprimoradas
+            mediaUploadTimeoutMs: 180000, // 3 minutos
+            retryRequestDelayMs: 5000,
+            maxRetries: 5
+        },
+        // Aumentar timeout para uploads
+        defaultQueryTimeoutMs: 60000
     });
 
     // Manipular eventos de conexão

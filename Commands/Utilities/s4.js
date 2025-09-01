@@ -2,6 +2,7 @@ const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { writeFile, unlink, access, stat } = require('fs/promises');
 const { tmpdir } = require('os');
 const { join } = require('path');
+const sharp = require('sharp');
 const smartStickerConverter = require('../../lib/SmartStickerConverter');
 const streamVideoProcessor = require('../../lib/StreamVideoProcessor');
 
@@ -218,17 +219,47 @@ async function handleStickerCommand(sock, msg, sendMessage) {
 
           StickerLogger.success(`Sticker de vídeo criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
 
-          // Método simples: tentar sticker, se falhar enviar como imagem
-          try {
-            await sock.sendMessage(chatId, { sticker: stickerBuffer }, { quoted: msg });
-            StickerLogger.success("Sticker enviado");
-          } catch (stickerError) {
-            StickerLogger.error("Sticker falhou, enviando como imagem");
-            await sock.sendMessage(chatId, { 
-              image: stickerBuffer,
-              caption: '🎬 Frame do vídeo'
-            }, { quoted: msg });
-            StickerLogger.success("Imagem enviada");
+          // Método aprimorado: tentar sticker com retry, se falhar enviar como imagem
+          let attempts = 0;
+          const maxAttempts = 3;
+          let sent = false;
+          
+          while (!sent && attempts < maxAttempts) {
+            try {
+              attempts++;
+              StickerLogger.info(`Tentativa ${attempts} de envio do sticker...`);
+              
+              await sock.sendMessage(chatId, { 
+                sticker: stickerBuffer,
+                mimetype: 'image/webp'
+              }, { 
+                quoted: msg,
+                timeout: 60000 // 60s timeout
+              });
+              
+              StickerLogger.success("Sticker enviado com sucesso");
+              sent = true;
+            } catch (stickerError) {
+              StickerLogger.warning(`Tentativa ${attempts} falhou: ${stickerError.message}`);
+              
+              if (attempts >= maxAttempts) {
+                StickerLogger.error("Todas as tentativas falharam, enviando como imagem");
+                try {
+                  await sock.sendMessage(chatId, { 
+                    image: stickerBuffer,
+                    caption: '🎬 Frame do vídeo (enviado como imagem)',
+                    mimetype: 'image/webp'
+                  }, { quoted: msg });
+                  StickerLogger.success("Imagem enviada com sucesso");
+                  sent = true;
+                } catch (imageError) {
+                  StickerLogger.error(`Falha completa: ${imageError.message}`);
+                }
+              } else {
+                // Aguardar antes da próxima tentativa
+                await new Promise(resolve => setTimeout(resolve, 2000));
+              }
+            }
           }
 
           StickerLogger.success("🎬 Sticker de vídeo enviado com sucesso!");
@@ -268,13 +299,48 @@ async function handleStickerCommand(sock, msg, sendMessage) {
 
         StickerLogger.success(`Sticker criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
 
-        await sock.sendMessage(chatId, {
-          sticker: stickerBuffer
-        }, {
-          quoted: msg
-        });
-
-        StickerLogger.success("Sticker enviado com sucesso!");
+        // Envio com retry para imagens também
+        let attempts = 0;
+        const maxAttempts = 3;
+        let sent = false;
+        
+        while (!sent && attempts < maxAttempts) {
+          try {
+            attempts++;
+            StickerLogger.info(`Tentativa ${attempts} de envio do sticker de imagem...`);
+            
+            await sock.sendMessage(chatId, {
+              sticker: stickerBuffer,
+              mimetype: 'image/webp'
+            }, {
+              quoted: msg,
+              timeout: 60000
+            });
+            
+            StickerLogger.success("Sticker de imagem enviado com sucesso!");
+            sent = true;
+          } catch (stickerError) {
+            StickerLogger.warning(`Tentativa ${attempts} falhou: ${stickerError.message}`);
+            
+            if (attempts >= maxAttempts) {
+              StickerLogger.error("Todas as tentativas falharam, enviando como imagem");
+              try {
+                await sock.sendMessage(chatId, { 
+                  image: stickerBuffer,
+                  caption: '🖼️ Sticker (enviado como imagem)',
+                  mimetype: 'image/webp'
+                }, { quoted: msg });
+                StickerLogger.success("Imagem enviada com sucesso");
+                sent = true;
+              } catch (imageError) {
+                StickerLogger.error(`Falha completa: ${imageError.message}`);
+                throw imageError;
+              }
+            } else {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          }
+        }
       }
 
     } catch (downloadError) {

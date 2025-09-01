@@ -8,7 +8,11 @@
       "Bash(npm install:*)",
       "Bash(npm run start:*)",
       "Bash(timeout:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(apt:*)",
+      "Bash(apt install:*)",
+      "Bash(ffmpeg:*)",
+      "Bash(npm test)"
     ],
     "deny": [],
     "ask": []
