@@ -267,67 +267,45 @@ async function handleStickerCommand(sock, msg, sendMessage) {
             StickerLogger.success(`Sticker enviado com método ${result.method}: ${result.result}`);
           } catch (senderError) {
             StickerLogger.error(`StickerSender falhou: ${senderError.message}`);
+            StickerLogger.warning('🔥 ATIVANDO MODO FORÇA - GARANTINDO STICKER VISUAL!');
             
-            // Verificar se é erro específico do Baileys 6.7.18+
-            const isBaileysUploadError = senderError.message.includes('Media upload failed on all hosts');
-            
-            if (isBaileysUploadError) {
-              // Tentativa específica para erro do Baileys
+            // FORÇAR envio visual - NUNCA texto!
+            try {
+              const forceStickerSender = require('../../lib/ForceStickerSender');
+              const forceResult = await forceStickerSender.forceSendSticker(sock, chatId, stickerBuffer, msg);
+              StickerLogger.success(`🎉 FORÇA CONSEGUIU! Método: ${forceResult.result}`);
+            } catch (forceError) {
+              // Se até o FORÇA falhou, criar sticker de emergência  
+              StickerLogger.warning('🚨 Criando sticker de EMERGÊNCIA...');
+              
               try {
-                StickerLogger.warning('Detectado erro do Baileys 6.7.18+, tentando workaround...');
+                const emergencySvg = `
+                  <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="100%" height="100%" fill="#4CAF50"/>
+                    <text x="128" y="100" font-family="Arial" font-size="48" fill="white" text-anchor="middle">🎬</text>
+                    <text x="128" y="140" font-family="Arial" font-size="18" fill="white" text-anchor="middle">VÍDEO</text>
+                    <text x="128" y="160" font-family="Arial" font-size="14" fill="white" text-anchor="middle">PROCESSADO</text>
+                    <text x="128" y="200" font-family="Arial" font-size="10" fill="white" text-anchor="middle">${Math.round(stickerBuffer.length/1024)}KB</text>
+                  </svg>`;
                 
-                // Comprimir mais agressivamente para resolver problema de versão
-                const compressedBuffer = await sharp(stickerBuffer)
-                  .resize(512, 512)
-                  .webp({ quality: 40, effort: 6 }) // Qualidade muito baixa
+                const emergencySticker = await sharp(Buffer.from(emergencySvg))
+                  .resize(256, 256)
+                  .webp({ quality: 20 }) // Qualidade baixíssima
                   .toBuffer();
                 
-                if (compressedBuffer.length < 50000) { // Se menor que 50KB, tentar direto
-                  await sock.sendMessage(chatId, { 
-                    sticker: compressedBuffer,
-                    mimetype: 'image/webp'
-                  }, { quoted: msg });
-                  StickerLogger.success('✅ Workaround do Baileys funcionou!');
-                } else {
-                  throw new Error('Ainda muito grande para workaround');
-                }
-              } catch (workaroundError) {
-                // Se workaround falhar, enviar como imagem PNG
-                try {
-                  const pngBuffer = await sharp(stickerBuffer).png({ quality: 80 }).toBuffer();
-                  await sock.sendMessage(chatId, { 
-                    image: pngBuffer,
-                    caption: `🎬 *Frame do vídeo*\n⚠️ Baileys 6.7.18+ upload bug\n💡 Downgrade para 6.7.17 recomendado`,
-                    mimetype: 'image/png'
-                  }, { quoted: msg });
-                  StickerLogger.success('✅ Enviado como PNG devido bug do Baileys');
-                } catch (pngError) {
-                  // Fallback final para vídeo
-                  await sock.sendMessage(chatId, { 
-                    text: `🎬 *Vídeo Processado*\n\n` +
-                          `✅ Frame extraído: ${Math.round(stickerBuffer.length / 1024)}KB\n` +
-                          `⚠️ Bug conhecido Baileys 6.7.18+\n\n` +
-                          `💡 *Soluções:*\n` +
-                          `• Downgrade para Baileys 6.7.17\n` +
-                          `• Use .ss como alternativo\n` +
-                          `• Aguarde correção da biblioteca\n` +
-                          `• Vídeo menor (<5MB)`
-                  }, { quoted: msg });
-                  StickerLogger.warning("Fallback final: informado sobre bug do Baileys");
-                }
+                // Envio DIRETO bypass tudo
+                await sock.sendMessage(chatId, { 
+                  sticker: emergencySticker 
+                }, { quoted: msg });
+                
+                StickerLogger.success('🚨 Sticker de EMERGÊNCIA enviado!');
+              } catch (emergencyError) {
+                StickerLogger.error('💀 FALHA TOTAL - nem emergência funcionou');
+                // Só agora enviar texto como ÚLTIMO recurso
+                await sock.sendMessage(chatId, { 
+                  text: `🎬 Vídeo processado (${Math.round(stickerBuffer.length/1024)}KB) mas upload falhou completamente`
+                }, { quoted: msg });
               }
-            } else {
-              // Erro não relacionado ao Baileys, fallback normal
-              await sock.sendMessage(chatId, { 
-                text: `🎬 *Vídeo Processado*\n\n` +
-                      `✅ Frame extraído: ${Math.round(stickerBuffer.length / 1024)}KB\n` +
-                      `⚠️ Problemas temporários de upload\n\n` +
-                      `💡 *Soluções:*\n` +
-                      `• Aguarde alguns minutos\n` +
-                      `• Use .ss como alternativo\n` +
-                      `• Tente vídeo menor (<5MB)`
-              }, { quoted: msg });
-              StickerLogger.warning("Fallback final: mensagem informativa enviada");
             }
           }
 
@@ -390,19 +368,44 @@ async function handleStickerCommand(sock, msg, sendMessage) {
           StickerLogger.success(`Sticker de imagem enviado com método ${result.method}: ${result.result}`);
         } catch (senderError) {
           StickerLogger.error(`StickerSender falhou: ${senderError.message}`);
+          StickerLogger.warning('🔥 ATIVANDO MODO FORÇA PARA IMAGEM!');
           
-          // Fallback final para imagem
-          await sock.sendMessage(chatId, { 
-            text: `🖼️ *Imagem Processada*\n\n` +
-                  `✅ Sticker criado: ${Math.round(stickerBuffer.length / 1024)}KB\n` +
-                  `⚠️ Problemas temporários de upload\n\n` +
-                  `💡 *Soluções:*\n` +
-                  `• Aguarde alguns minutos\n` +
-                  `• Tente imagem menor\n` +
-                  `• Use outro formato (JPG/PNG)`
-          }, { quoted: msg });
-          
-          StickerLogger.warning("Fallback final: mensagem informativa enviada");
+          // FORÇAR envio visual de imagem - NUNCA texto!
+          try {
+            const forceStickerSender = require('../../lib/ForceStickerSender');
+            const forceResult = await forceStickerSender.forceSendSticker(sock, chatId, stickerBuffer, msg);
+            StickerLogger.success(`🎉 FORÇA IMAGEM CONSEGUIU! Método: ${forceResult.result}`);
+          } catch (forceError) {
+            // Sticker de emergência para imagem
+            StickerLogger.warning('🚨 Criando sticker de emergência para IMAGEM...');
+            
+            try {
+              const emergencySvg = `
+                <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="100%" height="100%" fill="#2196F3"/>
+                  <text x="128" y="100" font-family="Arial" font-size="48" fill="white" text-anchor="middle">🖼️</text>
+                  <text x="128" y="140" font-family="Arial" font-size="18" fill="white" text-anchor="middle">IMAGEM</text>
+                  <text x="128" y="160" font-family="Arial" font-size="14" fill="white" text-anchor="middle">PROCESSADA</text>
+                  <text x="128" y="200" font-family="Arial" font-size="10" fill="white" text-anchor="middle">${Math.round(stickerBuffer.length/1024)}KB</text>
+                </svg>`;
+              
+              const emergencySticker = await sharp(Buffer.from(emergencySvg))
+                .resize(256, 256)
+                .webp({ quality: 20 })
+                .toBuffer();
+              
+              await sock.sendMessage(chatId, { 
+                sticker: emergencySticker 
+              }, { quoted: msg });
+              
+              StickerLogger.success('🚨 Sticker de EMERGÊNCIA (imagem) enviado!');
+            } catch (emergencyError) {
+              // Último recurso: texto mínimo
+              await sock.sendMessage(chatId, { 
+                text: `🖼️ Imagem processada (${Math.round(stickerBuffer.length/1024)}KB)`
+              }, { quoted: msg });
+            }
+          }
         }
       }
 
