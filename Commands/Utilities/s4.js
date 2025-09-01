@@ -5,6 +5,7 @@ const { join } = require('path');
 const sharp = require('sharp');
 const smartStickerConverter = require('../../lib/SmartStickerConverter');
 const streamVideoProcessor = require('../../lib/StreamVideoProcessor');
+const videoProcessor = require('../../lib/VideoProcessor');
 const stickerSender = require('../../lib/StickerSender');
 
 // Logger colorido para stickers
@@ -112,6 +113,16 @@ async function handleStickerCommand(sock, msg, sendMessage) {
   let tempImagePath = null;
 
   try {
+    // Auto-setup para ambiente workspace se necessário
+    if (process.cwd().includes('/workspace')) {
+      try {
+        const { autoSetup } = require('../../auto-setup');
+        await autoSetup();
+      } catch (setupError) {
+        // Ignorar erros de setup, continuar com fallbacks
+      }
+    }
+    
     // Força a inicialização do processador de vídeo para garantir que o FFmpeg seja detectado
     await streamVideoProcessor.init();
     
@@ -195,30 +206,58 @@ async function handleStickerCommand(sock, msg, sendMessage) {
       StickerLogger.success(`Download concluído: ${mediaBuffer.length} bytes`);
 
       if (isVideo) {
-        // Para vídeos, usar StreamVideoProcessor (SEM arquivos temporários)
-        StickerLogger.process('Processando vídeo via streaming FFmpeg...');
+        // Para vídeos, tentar FFmpeg primeiro, depois método alternativo
+        StickerLogger.process('Processando vídeo...');
         
-        try {
-          // Verificar se é um vídeo válido
-          const isValid = streamVideoProcessor.isValidVideo(mediaBuffer);
-          StickerLogger.info(`Vídeo válido: ${isValid ? 'Sim' : 'Não'}`);
-          
-          if (!isValid) {
-            await sendMessage(chatId, '*[⚠️]* Formato de vídeo não suportado. Tente com MP4, WebM ou AVI!');
-            return;
+        // Verificar se é um vídeo válido
+        let isValid = streamVideoProcessor.isValidVideo(mediaBuffer);
+        if (!isValid) {
+          isValid = videoProcessor.isValidVideo(mediaBuffer);
+        }
+        
+        StickerLogger.info(`Vídeo válido: ${isValid ? 'Sim' : 'Não'}`);
+        
+        if (!isValid) {
+          await sendMessage(chatId, '*[⚠️]* Formato de vídeo não suportado. Tente com MP4, WebM ou AVI!');
+          return;
+        }
+
+        let stickerBuffer = null;
+        let processingMethod = 'unknown';
+
+        // Tentar FFmpeg primeiro se disponível
+        const streamStatus = streamVideoProcessor.getStatus();
+        if (streamStatus.hasFFmpeg) {
+          try {
+            StickerLogger.info(`Tentando FFmpeg: ${streamStatus.method}`);
+            stickerBuffer = await streamVideoProcessor.processVideo(mediaBuffer, {
+              timePosition: '00:00:02',
+              quality: 80
+            });
+            processingMethod = 'FFmpeg';
+            StickerLogger.success('✅ Processado com FFmpeg');
+          } catch (ffmpegError) {
+            StickerLogger.warning(`FFmpeg falhou: ${ffmpegError.message}`);
+            stickerBuffer = null;
           }
+        }
 
-          // Mostrar status do sistema
-          const status = streamVideoProcessor.getStatus();
-          StickerLogger.info(`Método: ${status.method}`);
+        // Se FFmpeg falhou ou não está disponível, usar método alternativo
+        if (!stickerBuffer) {
+          try {
+            StickerLogger.info('Usando processador alternativo sem FFmpeg...');
+            stickerBuffer = await videoProcessor.processVideo(mediaBuffer);
+            processingMethod = 'Alternativo';
+            StickerLogger.success('✅ Processado com método alternativo');
+          } catch (altError) {
+            StickerLogger.error(`Método alternativo falhou: ${altError.message}`);
+            // Fallback final - usar visual do streamVideoProcessor
+            stickerBuffer = await streamVideoProcessor.createVideoInfoSticker(mediaBuffer, 'Processamento alternativo');
+            processingMethod = 'Visual Fallback';
+          }
+        }
 
-          // Processar vídeo usando stdin/stdout streaming
-          const stickerBuffer = await streamVideoProcessor.processVideo(mediaBuffer, {
-            timePosition: '00:00:02', // Frame aos 2 segundos
-            quality: 80
-          });
-
-          StickerLogger.success(`Sticker de vídeo criado: ${Math.round(stickerBuffer.length / 1024)}KB`);
+        StickerLogger.success(`Sticker de vídeo criado: ${Math.round(stickerBuffer.length / 1024)}KB (${processingMethod})`);
 
           // Usar StickerSender robusto para vídeos
           try {
